@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** Recognizing middleware registration calls and indexing middleware constructor signatures, so their keyword arguments complete — the one place FastAPI hides a signature even from type checkers.
 >
@@ -24,7 +24,7 @@ This spec covers:
 
 ## 2. Non-Goals / Out of Scope
 
-- Middleware *ordering* semantics, diagnostics, or hover — registration order matters at runtime, but there's nothing provably wrong to diagnose statically (P4).
+- Middleware ordering *diagnostics* — order matters at runtime, but no particular order is provably wrong statically (P4). The applied chain itself *is* modeled, in true execution order (REQ-MW-04), and rendered on the hover card.
 - Completion of the middleware class name itself — a plain symbol, Pylance's job (P5).
 
 ## 3. Detailed Specification
@@ -33,11 +33,13 @@ This spec covers:
 
 **REQ-MW-01 — Registration sites are recognized by shape.**
 
-Pass 1 records `<obj>.add_middleware(<Class>, **kwargs)` where `<obj>` is an app or router-like name, and `Middleware(<Class>, **kwargs)` entries inside a `middleware=[...]` argument to `FastAPI(...)`/`Starlette(...)`, `Mount(...)`, `Route(...)`, or `Router(...)` — Starlette accepts middleware at every one of those levels. The fact carries the class expression, the registration level, and the span of the argument list.
+Pass 1 records `<obj>.add_middleware(<Class>, **kwargs)` where `<obj>` is an app or router-like name, and `Middleware(<Class>, **kwargs)` entries inside a `middleware=[...]` argument to `FastAPI(...)`/`Starlette(...)`, `Mount(...)`, `Route(...)`, or `Router(...)` — Starlette accepts middleware at every one of those levels. It also records `@<app>.middleware("http")` decorators — the most common way FastAPI users write custom middleware; that fact carries the decorated function's name, which is what the applied chain renders for it. Class registrations carry the class expression, the registration level, and the span of the argument list.
 
-**REQ-MW-04 — Pass 2 computes each route's applied chain.**
+**REQ-MW-04 — Pass 2 computes each route's applied chain, in true execution order.**
 
-Linking walks a route's chain and concatenates the middleware registered at each level — app, then mount/router, then route — in execution order, storing it on the `RouteRecord` ([E07](../foundations/E07-data-model.md)). The hover route card renders it ([F10](F10-hover.md) REQ-HOV-02).
+Linking walks a route's chain and concatenates the middleware registered at each level — app, then mount/router, then route — storing the result on the `RouteRecord` ([E07](../foundations/E07-data-model.md)). The hover route card renders it ([F10](F10-hover.md) REQ-HOV-02).
+
+Execution order is **not** source order, and getting this wrong renders the chain exactly backwards. `add_middleware` *prepends* — Starlette's implementation is `user_middleware.insert(0, …)` — so within one level those registrations apply in reverse source order: the last call is outermost and runs first. A `middleware=[...]` constructor list runs in list order, after that level's `add_middleware` registrations. Across levels the chain nests app → mount/router → route, outermost first. Decorator middleware (`@app.middleware("http")`) registers through the same prepend mechanism and follows the same rule.
 
 ### 3.2 Signature sources
 
@@ -81,8 +83,9 @@ You type `app.add_middleware(CORSMiddleware, ` — completion offers the seven C
 
 ```rust
 // src/parsing/middleware.rs — facts
-pub struct MiddlewareCall { pub class: DottedName, pub level: MwLevel, pub owner: String,
+pub struct MiddlewareCall { pub source: MwSource, pub level: MwLevel, pub owner: String,
                             pub args_span: Range, pub present_kwargs: Vec<String> }
+pub enum MwSource { Class(DottedName), DecoratorFn(String) }   // @app.middleware("http") → fn name
 pub enum MwLevel { App, Router, Mount, Route }
 
 // src/state.rs — signature index (workspace source)
@@ -102,5 +105,6 @@ Files: `parsing/middleware.rs` (recognition + stock table), `linking.rs` (per-ro
 
 ## 8. Changelog
 
+- **2026-06-12** — v0.2 review pass: REQ-MW-04 states Starlette's real ordering (`add_middleware` prepends — reverse source order within a level; constructor lists in list order); REQ-MW-01 recognizes `@app.middleware("http")` decorators; Non-Goals narrowed to ordering *diagnostics* (the chain itself is modeled); `MwSource` in data shapes.
 - **2026-06-12** — Added mount/route/router-level registration and REQ-MW-04 (per-route applied chain, rendered by the hover card).
 - **2026-06-12** — Initial draft: registration recognition, dual signature sources, stock table.

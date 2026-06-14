@@ -1,0 +1,40 @@
+[package]
+name = "fastapi-lsp"
+version = "0.1.0"
+edition = "2024"
+description = "Language server for FastAPI and Starlette"
+license = "MIT"
+repository = "https://github.com/alexoleshkevich/fastapi-lsp"
+
+[[bin]]
+name = "fastapi-lsp"
+path = "src/main.rs"
+
+[dependencies]
+tower-lsp-server = "0.23"
+tokio = { version = "1", features = ["full"] }
+tree-sitter = "0.25"
+tree-sitter-python = "0.23"
+dashmap = "6"
+arc-swap = "1"
+notify = "8"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+walkdir = "2"
+
+[dev-dependencies]
+# E2e tests are Python (pytest-lsp); Rust unit tests use std
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/fastapi-lsp-{ version }-{ target }.tar.gz"
+bin-dir = "fastapi-lsp{ binary-ext }"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

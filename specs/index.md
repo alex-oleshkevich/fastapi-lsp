@@ -8,25 +8,25 @@
 
 fastapi-lsp is a Rust language server giving FastAPI and Starlette codebases framework-semantic intelligence — route navigation, diagnostics, dependency-graph features, test linking, and template integration — in Zed, Neovim, and Helix. The suite is organized foundation-first: meta-docs set the rules, `E##` foundations define how the server is built, `F##` features define what it does.
 
-**Foundation specs describe _how_ the app is built. Feature specs describe _what_ each feature does.** Features split into two kinds: **domain specs** (F01, F03–F06, F09) own indexing semantics — what's extracted and linked; **capability specs** (F02, F08, F10–F15) each own one LSP capability's user-facing behavior across all domains.
+**Foundation specs describe _how_ the app is built. Feature specs describe _what_ each feature does.** Features split into two kinds: **domain specs** (F01, F03–F06, F09, F16) own indexing semantics — what's extracted and linked; **capability specs** (F02, F08, F10–F15) each own one LSP capability's user-facing behavior across all domains; F07 and F17 are delivery/tooling specs — editor packaging and the CLI.
 
 ## Status legend
 
-✅ Approved · 📝 In Review · ✏️ Draft · ♻️ Deprecated · ⛔ Rejected
+✅ Approved · 📝 In Review · ✏️ Draft · 🔄 Living · ♻️ Deprecated · ⛔ Rejected
 
 ## Tier 1 — Meta
 
 | Spec | Purpose | Load this when | Status |
 |---|---|---|---|
 | [constitution](constitution.md) | Product principles (P1–P6), authoring conventions, the bookshop example cast | Writing or reviewing any spec | ✅ |
-| [glossary](glossary.md) | Canonical definition of every domain term | A term is unclear | ✏️ |
+| [glossary](glossary.md) | Canonical definition of every domain term | A term is unclear | 🔄 |
 
 ## Tier 2 — Product
 
 | Spec | Purpose | Load this when | Status |
 |---|---|---|---|
 | [01-overview](01-overview.md) | What fastapi-lsp is, in plain language | Onboarding to the project | ✏️ |
-| [roadmap](roadmap.md) | Build order — milestones M0–M7 | Planning what to build next | ✏️ |
+| [roadmap](roadmap.md) | Build order — milestones M0–M11 | Planning what to build next | 🔄 |
 
 ## Tier 3 — Foundations
 
@@ -84,6 +84,7 @@ When you author or change a spec, update its row here in the same edit. When a s
 
 ## Changelog
 
+- **2026-06-12** — Four-perspective review pass (Rust implementer, product, LSP protocol, FastAPI end user): trailing-slash semantics made significant suite-wide ([F01](features/F01-route-index.md)/[F02](features/F02-diagnostics.md)/[F04](features/F04-test-linking.md)/[F08](features/F08-code-actions.md)/[F11](features/F11-completion.md), constitution cast); atomic pass-2 snapshot + generation counter and `Uri` type ([E07](foundations/E07-data-model.md)/[E01](foundations/E01-architecture.md)/[E03](foundations/E03-tech-stack.md)); diagnostics narrowed for P4 compliance (`route/arg-missing-param`, `di/depends-called`, `route/param-missing-arg`, `route/shadowed`, `model/*`, `env/*`); `app.mount` promoted to v1 ([F06](features/F06-starlette-routing.md)); `dependency_overrides`, `include_router(dependencies=)`, app factories, `src/` layouts covered ([F03](features/F03-dependency-graph.md)/[F01](features/F01-route-index.md)/[E07](foundations/E07-data-model.md)/[E15](foundations/E15-app-config.md)); editor-reality fixes for codeLens/documentLink/triggerCharacters/refresh (F11–F15, [F07](features/F07-editor-integration.md)); `--http` renamed `--tcp` ([E01](foundations/E01-architecture.md)/[F17](features/F17-cli.md)); overview/roadmap/glossary/template hygiene.
 - **2026-06-12** — Large batch: [F17-cli](features/F17-cli.md) (`lsp`/`check` subcommands); [E15](foundations/E15-app-config.md) v0.2 config system (init options / own file / pyproject, `[features]` toggles, env sources); [F09](features/F09-env-settings.md) loader support (starlette `Config`, pydantic `env_file`, python-dotenv, environs, opt-in process env); [F05](features/F05-templates.md) REQ-TPL-06 (`url_for` in templates); [F02](features/F02-diagnostics.md) `route/router-not-included`, `model/unknown-body-model`, REQ-DIAG-09 (related info + tags + data payloads), full worked-example gallery; [F08](features/F08-code-actions.md) was/become gallery; [F10](features/F10-hover.md) rendered popovers + applied-middleware line; [E07](foundations/E07-data-model.md) REQ-IDX-06 (import-alias binding); Data Shapes & Code Map sections on F01–F17; README + CI/release workflows; all sibling-LSP references removed.
 - **2026-06-12** — Added [F16-middleware](features/F16-middleware.md) (kwarg completion via [F11](features/F11-completion.md) REQ-CPL-06) and [E01](foundations/E01-architecture.md) REQ-ARCH-12 (mandatory file watching); [E07](foundations/E07-data-model.md) and [E17](foundations/E17-testing.md) updated; [roadmap](roadmap.md) gains M10.
 - **2026-06-12** — Doc-verification pass against official Starlette/FastAPI/pydantic-settings docs (31 claims checked, all spec-encoded behavior now sourced): path converters + `{p:path}` trie semantics ([F01](features/F01-route-index.md), [E07](foundations/E07-data-model.md)); Mount name namespacing ([F01](features/F01-route-index.md), [F02](features/F02-diagnostics.md)); `url_path_for`; bare `Depends()` as an edge ([F03](features/F03-dependency-graph.md)); `validation_alias` precedence and `env_file` honesty note ([F09](features/F09-env-settings.md)); directory sequences ([E15](foundations/E15-app-config.md)); implicit HEAD ([F06](features/F06-starlette-routing.md)).

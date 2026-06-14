@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** Everything `textDocument/hover` shows — the route card, dependency usage, include summaries, and env values — composed from the indices the domain specs build.
 >
@@ -18,7 +18,7 @@ One hover provider, dispatching on what's under the cursor, answering from the i
 
 ## 2. Non-Goals / Out of Scope
 
-- Type information of any kind — Pylance/ty's hover already shows it (P5); ours composes alongside it in editors that merge multiple servers' hovers.
+- Type information of any kind — Pylance/ty's hover already shows it (P5); ours composes alongside it in editors that merge multiple servers' hovers. Helix does not merge hover — it asks the first capable server only, so whichever server is listed first wins; [F07](F07-editor-integration.md) §3.3 documents the ordering trade-off.
 - Hover inside template files — a dedicated Jinja language server's territory (except the `url_for` sites of [F05 REQ-TPL-06](F05-templates.md), which only our route index can answer).
 
 ## 3. Detailed Specification
@@ -45,7 +45,7 @@ Hovering anywhere on a handler's `def` line (or its decorator) returns markdown:
 - middleware: `CORSMiddleware` → `TimingMiddleware`
 ```
 
-Lines without a value are omitted. The middleware line lists the route's *applied* chain in execution order — app-level `add_middleware`/`middleware=[]` plus any mount-, router-, or route-level `middleware=[]` on the way down the chain ([F16](F16-middleware.md) indexes the registrations). Unresolved routes show the longest-known suffix marked `⟨unresolved⟩` (per [F01](F01-route-index.md) REQ-ROUTE-05). Starlette table routes get the same card; a terminal mount renders:
+Lines without a value are omitted. The middleware line lists the route's *applied* chain in execution order — and execution order is not source order. `add_middleware` registrations render in reverse source order (Starlette prepends each one, so the last call is outermost and runs first), followed by `middleware=[...]` constructor lists in list order. [F16](F16-middleware.md) REQ-MW-04 owns that rule; the card just renders the chain it stored. Unresolved routes show the longest-known suffix marked `⟨unresolved⟩` (per [F01](F01-route-index.md) REQ-ROUTE-05). Starlette table routes get the same card; a terminal mount renders:
 
 ```markdown
 **MOUNT** `/static` — `StaticFiles(directory="static")`
@@ -72,9 +72,10 @@ On the `def` line of an indexed dependency, the card shows both directions:
 
 - used by: `list_books` (route) · `get_book` (route) · `get_current_user` (dependency)
 - uses: —
+- overridden in: `tests/conftest.py`
 ```
 
-Direct edges only ([F03](F03-dependency-graph.md) OQ-DI-1 tracks transitive display).
+Direct edges only ([F03](F03-dependency-graph.md) OQ-DI-1 tracks transitive display). The override line appears only when [F03](F03-dependency-graph.md) recorded `dependency_overrides` facts for the function — worth knowing before you debug why a test never hits the real database.
 
 ### 3.4 The env card
 
@@ -88,7 +89,7 @@ On a recognized env key string or a settings field definition:
 defined in: `.env:12` · `.env.example:8`
 ```
 
-A missing key shows `[not in workspace env files]`. Values whose key matches `(?i)(secret|token|password|key|credential)` render masked:
+A missing key shows `[not in workspace env files]`. A value renders masked when its key contains any of `secret`, `token`, `password`, `key`, `credential` — a case-insensitive substring check, no regex involved:
 
 ```markdown
 `MAIL_PASSWORD` = `••••••`
@@ -111,7 +112,7 @@ Hover `get_book`: the card shows the chain through `main.py`'s include — the r
 
 ```rust
 // src/features/hover.rs — one pure function, one card enum
-pub fn hover(state: &WorkspaceState, uri: &Url, pos: Position) -> Option<Hover>;
+pub fn hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hover>;
 
 enum Card<'a> { Route(&'a RouteRecord), Router { decl: &'a RouterDecl, routes: Vec<&'a RouteRecord> },
                 Dependency { node: NodeId }, Env { key: &'a str, entry: Option<&'a EnvEntry> },
@@ -119,7 +120,7 @@ enum Card<'a> { Route(&'a RouteRecord), Router { decl: &'a RouterDecl, routes: V
 impl Card<'_> { fn render(&self) -> MarkupContent }                      // all markdown lives here
 ```
 
-Files: `features/hover.rs`. Rendering is centralized in `Card::render` so card formats stay consistent and testable as plain string assertions.
+Files: `features/hover.rs`. Rendering is centralized in `Card::render` so card formats stay consistent and testable as plain string assertions. The `Card<'a>` borrows are sound only because they point into the immutable pass-2 snapshot: `hover` loads one `Arc<Linked>` ([E07](../foundations/E07-data-model.md)) and every reference lives inside it — never into a `DashMap` guard, which couldn't be held across the render.
 
 ## 6. Cross-References
 
@@ -128,5 +129,6 @@ Files: `features/hover.rs`. Rendering is centralized in `Card::render` so card f
 
 ## 7. Changelog
 
+- **2026-06-12** — v0.2 review pass: middleware line states the reverse-source-order rule, owned by F16; dependency card gains the override line from F03's `dependency_overrides` facts; masking restated as a case-insensitive substring list, no regex; `Card` borrows pinned to the `Arc<Linked>` snapshot; Helix no-hover-merge hedge with F07 §3.3 pointer.
 - **2026-06-12** — Rendered popover examples added to every card; route card gains the applied-middleware line (chain from [F16](F16-middleware.md)).
 - **2026-06-12** — Extracted from F01 §5.4 (REQ-ROUTE-07), F03 §3.3 (hover part of REQ-DI-03), F09 §3.3 (REQ-ENV-04) into a capability spec.

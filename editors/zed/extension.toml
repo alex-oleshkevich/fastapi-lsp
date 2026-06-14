@@ -1,0 +1,20 @@
+id = "fastapi-lsp"
+name = "fastapi-lsp"
+description = "Language server for FastAPI and Starlette"
+version = "0.1.0"
+schema_version = 1
+authors = ["Alex Oleshkevich <techsupport@investerra.ch>"]
+repository = "https://github.com/alexoleshkevich/fastapi-lsp"
+
+[lib]
+kind = "Rust"
+version = "0.7.0"
+
+[language_servers.fastapi-lsp]
+name = "fastapi-lsp"
+languages = ["Python", "HTML", "Jinja2"]
+
+[language_servers.fastapi-lsp.language_ids]
+"Python" = "python"
+"HTML" = "html"
+"Jinja2" = "jinja2"

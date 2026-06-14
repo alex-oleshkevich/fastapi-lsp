@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** Extracting table-style Starlette routing — `Route`, `Mount`, `WebSocketRoute` — into the same route index, so every navigation, diagnostic, and test-linking feature works on raw Starlette apps unchanged.
 >
@@ -19,13 +19,13 @@ Starlette apps declare routes as data, not decorators: a list of `Route(...)` ob
 This spec covers:
 
 - Extraction of `Route`, `WebSocketRoute`, and `Mount` (including `Mount`-of-app and `StaticFiles`)
+- The imperative twins: `app.mount(...)` and `app.add_route(...)`
 - How table entries map onto the F01 route facts and chain model
 
 ## 2. Non-Goals / Out of Scope
 
 - New features. F06 adds inputs, not outputs — symbols, hover, goto, diagnostics, and test linking come from F01–F04 for free.
-- Starlette middleware, exception handlers, and lifespan — not routing.
-- `app.add_route(...)` imperative registration — rare; recorded as OQ-STAR-1.
+- Starlette middleware, exception handlers, and lifespan — not routing ([F16](F16-middleware.md) owns middleware).
 
 ## 3. Background & Rationale
 
@@ -43,6 +43,12 @@ Pass 1 extracts, from any list assigned to a `routes=` kwarg of `Starlette(...)`
 - `WebSocketRoute(<path>, <endpoint>)` → method `WEBSOCKET`.
 - `Mount(<path>, routes=[...])` → a chain link contributing `<path>` as prefix to the nested list.
 - `Mount(<path>, app=<other_app>)` → a chain link into the other app's routes when `<other_app>` resolves to a workspace `Starlette`/`FastAPI` instance; a terminal "mounted app" record otherwise (e.g. `StaticFiles` — indexed for hover/symbols as `MOUNT /static`, no handler).
+
+**REQ-STAR-04 — Imperative registration is extracted too.**
+
+`app.mount("/static", StaticFiles(directory="static"), name="static")` is in every tutorial app that serves templates, and `app.mount("/subapi", subapp)` is FastAPI's documented sub-application mechanism — far too common to defer. Pass 1 extracts `<app>.mount(<path>, <app_or_routes>, name=...)` and `<app>.add_route(<path>, <endpoint>, methods=[...], name=...)` into the same facts as their table-style twins above; nothing downstream can tell the styles apart.
+
+A *named* terminal mount additionally lands in `route_names` with a synthetic `{path:path}` parameter, so `url_for('static', path='/styles.css')` resolves and gets its params checked like any other name. Without this, the `{{ url_for('static', path=...) }}` line found in essentially every template would squiggle as unknown ([F02](F02-diagnostics.md) REQ-DIAG-06).
 
 **REQ-STAR-02 — Endpoint classes count as handlers.**
 
@@ -67,11 +73,11 @@ The `health/` fixture declares `Starlette(routes=[Route("/health", health), Moun
 
 ## 7. Open Questions & Decisions
 
-- **OQ-STAR-1** — `app.add_route(...)` / `app.mount(...)` imperative forms: extract or ignore? `app.mount` is common enough that it likely joins REQ-STAR-01 during M6; decide from fixture evidence.
+- **Decision (resolves OQ-STAR-1)** — `app.mount(...)` and `app.add_route(...)` are extracted in v1 (REQ-STAR-04). `StaticFiles` mounts and the ubiquitous `url_for('static', …)` template line made deferral untenable: an unindexed mount both broke that name and forced the `url/unknown-name` gate to stay silent in exactly the apps where it's most useful.
 
 ## Data Shapes & Code Map
 
-Table entries normalize into F01's `RouteFact`/`ChainLink` shapes at extraction time — by design there are no F06-only record types downstream. The only new shapes are the table-side intermediates:
+Table entries normalize into F01's `RouteFact`/`ChainLink` shapes at extraction time — by design there are no F06-only record types downstream. Imperative `mount`/`add_route` calls (REQ-STAR-04) normalize through the same intermediates. The only new shapes are the table-side intermediates:
 
 ```rust
 // src/parsing/routes.rs — table-style intermediates
@@ -90,5 +96,6 @@ Files: `parsing/routes.rs` (one extraction module for both styles — REQ-STAR-0
 
 ## 9. Changelog
 
+- **2026-06-12** — v0.2 review pass: `app.mount(...)`/`app.add_route(...)` promoted to v1 (REQ-STAR-04, resolves OQ-STAR-1); named terminal mounts join `route_names` with a synthetic `{path:path}` param so `url_for('static', …)` resolves.
 - **2026-06-12** — Doc-verification fix: implicit-HEAD-on-GET recorded; index keeps declared methods only.
 - **2026-06-12** — Initial draft: table-form extraction, mounts-as-includes, endpoint classes.

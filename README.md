@@ -20,32 +20,83 @@ Static analysis only: the server never imports or executes your code.
 
 ## Editor setup
 
-The binary must be on `PATH`.
+The binary must be on `PATH` (`cargo install fastapi-lsp`, `pip install fastapi-lsp`, or download a release binary).
 
-**Neovim** (nvim-lspconfig):
+### Neovim
 
 ```lua
+-- nvim-lspconfig
 vim.lsp.config('fastapi_lsp', {
-  cmd = { 'fastapi-lsp', 'lsp', '--stdio' },
-  filetypes = { 'python' },
+  cmd = { 'fastapi-lsp', '--stdio' },
+  filetypes = { 'python', 'html', 'htmldjango' },
   root_markers = { 'pyproject.toml', '.git' },
 })
 vim.lsp.enable('fastapi_lsp')
 ```
 
-**Helix** (`~/.config/helix/languages.toml`):
+The `html` / `htmldjango` filetypes are load-bearing: without them the server is never attached to `.html` buffers, so template diagnostics, completions, and navigation never fire inside templates.
+
+### Helix
 
 ```toml
+# ~/.config/helix/languages.toml
 [language-server.fastapi-lsp]
 command = "fastapi-lsp"
-args = ["lsp", "--stdio"]
+args = ["--stdio"]
 
 [[language]]
 name = "python"
 language-servers = ["pyright", "fastapi-lsp"]
+
+[[language]]
+name = "html"
+language-servers = ["vscode-html-language-server", "fastapi-lsp"]
+
+[[language]]
+name = "jinja"
+language-servers = ["fastapi-lsp"]
 ```
 
-**Zed**: install the extension from `editors/zed/` (`./scripts/install-zed-extension.sh` for local dev).
+Order matters in Helix. It routes hover, goto-definition, and references to the *first* server that advertises the capability; diagnostics, completion, code actions, and symbols merge across servers. With the type checker first (as above), its hover and goto stay primary — framework hover cards and string-goto are unavailable, while diagnostics, completion, actions, and symbols still work. List `fastapi-lsp` first to invert this trade-off.
+
+### Zed
+
+Install the extension from `editors/zed/` for local dev:
+
+```bash
+./scripts/install-zed-extension.sh
+```
+
+Then opt in — Zed runs the extension alongside the default Python server only when explicitly named:
+
+```jsonc
+// ~/.config/zed/settings.json
+{
+  "languages": {
+    "Python": { "language_servers": ["fastapi-lsp", "..."] }
+  }
+}
+```
+
+Pass initialization options through the `lsp` key:
+
+```jsonc
+{
+  "lsp": {
+    "fastapi-lsp": {
+      "initialization_options": { "templates": ["app/templates"] }
+    }
+  }
+}
+```
+
+### Troubleshooting
+
+**Server never starts** — verify `fastapi-lsp --stdio` is on `PATH`. Run it manually: a blank `Content-Length: …` handshake on stdin proves the binary is working.
+
+**Template features missing** — check that the `html`/`htmldjango`/`jinja` filetypes are listed in your editor config (see snippets above). The server must be attached to the template buffer to answer template requests.
+
+**Diagnostics look wrong** — the server emits `source: "fastapi-lsp"` on every diagnostic; filter by that to isolate its output from the type checker's.
 
 ## Configuration
 

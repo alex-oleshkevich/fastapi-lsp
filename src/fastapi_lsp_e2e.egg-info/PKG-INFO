@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: fastapi-lsp-e2e
+Version: 0.1.0
+Requires-Python: >=3.12
+Requires-Dist: pytest>=8
+Requires-Dist: pytest-asyncio>=0.23
+Requires-Dist: pytest-lsp>=0.4
+Requires-Dist: lsprotocol>=2023

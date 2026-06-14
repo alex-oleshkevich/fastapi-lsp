@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** Everything `textDocument/definition`, `textDocument/references`, and `textDocument/documentLink` do — the clickable edges between routes, dependencies, tests, templates, and env files.
 >
@@ -40,13 +40,13 @@ The framework wires things together through strings and decorator arguments; thi
 
 **REQ-NAV-02 — References aggregate every edge kind pointing at the target.**
 
-References on a **handler** include its client-call sites and `url_for` sites. References on a **dependency function** include every `Depends` site naming it, across the workspace. Results merge with whatever the primary LSP returns — editors deduplicate by location.
+References on a **handler** include its client-call sites and `url_for` sites. References on a **dependency function** include every `Depends` site naming it — and its `dependency_overrides` sites ([F03](F03-dependency-graph.md)) — across the workspace. How results combine with the primary LSP's is editor-specific: Neovim appends both servers' results to the quickfix list without deduplicating, and Helix doesn't merge references across servers at all — it asks the first capable server only. [F07 §3.3](F07-editor-integration.md) documents that ordering trade-off.
 
 ### 3.3 Document links
 
-**REQ-NAV-03 — Template and env strings publish as document links.**
+**REQ-NAV-03 — Document links are a progressive enhancement, not a load-bearing surface.**
 
-`textDocument/documentLink` covers recognized template strings and env keys, so they render clickable without a keybinding. Route-ish strings (client paths, `url_for`) stay goto-only: a test file fully underlined with links is noise.
+`textDocument/documentLink` covers recognized template strings, so they render clickable without a keybinding — in clients that consume the capability. None of the three first-class editors does today: Zed, Neovim's built-in client, and Helix all skip the request, so goto definition (REQ-NAV-01) carries the feature everywhere, and links light up for free wherever support lands later. Env keys stay goto-only even then — a `DocumentLink.target` is a bare URI and cannot address the `KEY=` line. Route-ish strings (client paths, `url_for`) stay goto-only by choice: a test file fully underlined with links is noise.
 
 ## 4. Examples & Use Cases
 
@@ -61,13 +61,13 @@ Ctrl-click the string in `client.get("/api/books/1")` and land in `get_book`. Fi
 
 ```rust
 // src/features/goto.rs, references.rs, document_link.rs
-pub fn goto(state: &WorkspaceState, uri: &Url, pos: Position) -> Option<GotoDefinitionResponse>;
-pub fn references(state: &WorkspaceState, uri: &Url, pos: Position) -> Vec<Location>;
-pub fn document_links(state: &WorkspaceState, uri: &Url) -> Vec<DocumentLink>;
+pub fn goto(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<GotoDefinitionResponse>;
+pub fn references(state: &WorkspaceState, uri: &Uri, pos: Position) -> Vec<Location>;
+pub fn document_links(state: &WorkspaceState, uri: &Uri) -> Vec<DocumentLink>;
 
 enum Edge { IncludeTarget, RouterVar, ResponseModel, UrlForName, DependsName,
             ClientPath, TemplateName, EnvKey }                            // one variant per REQ-NAV-01 bullet
-fn edge_at(state: &WorkspaceState, uri: &Url, pos: Position) -> Option<Edge>;
+fn edge_at(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Edge>;
 ```
 
 Files: `features/goto.rs`, `features/references.rs`, `features/document_link.rs` — all dispatch through one shared `edge_at` so goto and references can never disagree about what's under the cursor.
@@ -79,4 +79,5 @@ Files: `features/goto.rs`, `features/references.rs`, `features/document_link.rs`
 
 ## 7. Changelog
 
+- **2026-06-12** — v0.2 review pass: REQ-NAV-03 reworded to progressive enhancement (no first-class editor consumes documentLink today; env links can't target a line); REQ-NAV-02 merge claim corrected per editor (Neovim quickfix doesn't dedupe, Helix doesn't merge) and override sites included in dependency references; `Uri` type in data shapes.
 - **2026-06-12** — Extracted from F01 §5.6/§5.7 (REQ-ROUTE-09, goto part of REQ-ROUTE-11), F03 §3.3 (goto/references of REQ-DI-03), F04 §3.3 (navigation part of REQ-TLINK-03), F05 §3.3 (REQ-TPL-03), F09 §3.3 (goto part of REQ-ENV-05) into a capability spec.

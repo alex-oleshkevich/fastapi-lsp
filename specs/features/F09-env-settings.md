@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** Environment-variable intelligence — hover, completion, goto, and diagnostics for `os.environ`/`os.getenv` lookups and Pydantic `BaseSettings` fields, backed by the workspace's `.env` files.
 >
@@ -72,12 +72,14 @@ One honesty note: pydantic-settings reads `.env` only when the class configures 
 
 Severity Information, on the key string: `'APP_TIMEOUT' is not defined in workspace env files (.env, .env.example)`. It fires only when the lookup has no default (second argument to `get`/`getenv`, or a settings field with a default value). It deliberately does *not* claim the variable won't exist at runtime — deployment-provided vars are normal — which is why it's Information, not Warning, and why the message names the files checked. Detail row lives in the [F02 catalog](F02-diagnostics.md).
 
+Well-known OS and CI variables never fire it. A built-in allowlist — `HOME`, `PATH`, `USER`, `PORT`, `HOSTNAME`, `PWD`, and the common CI vars — is suppressed by default; nobody puts `HOME` in `.env`. You can extend the list through [E15](../foundations/E15-app-config.md)'s `env.ignore` key.
+
 **REQ-ENV-07 — Two code actions, per F08 conventions.**
 
-- **Add `KEY` to `.env`** — appends `KEY=` and opens the file at that line. Offered on any `env/undefined-key`.
+- **Add `KEY` to `.env`** — a `WorkspaceEdit` appends the `KEY=` line. A `WorkspaceEdit` can't open a file, so the jump is a follow-up: the action's `Command` resolves server-side into `window/showDocument` targeting the new line, gated on the client's `window.showDocument` capability. Without that capability the edit still applies; you navigate manually. Offered on any `env/undefined-key`.
 - **Copy `KEY` from `.env.example`** — appends the example's line to `.env`. Offered when the key exists only in `.env.example`. (The laravel-ls flow, ported.)
 
-Both follow [F08](F08-code-actions.md) REQ-ACT-01's gates and `quickfix` kind.
+Both follow [F08](F08-code-actions.md) REQ-ACT-01's gates and `quickfix` kind, registered as `AddEnvKey` and `CopyEnvKey` in F08's action enum.
 
 ### 3.4 Capability surface
 
@@ -110,18 +112,19 @@ pub struct EnvFileDecl { pub path: String, pub loader: LoaderKind, pub site: Loc
 
 // src/state.rs — index entries
 pub struct EnvEntry { pub value: String, pub sources: Vec<EnvSource> }
-pub enum EnvSource { File { uri: Url, line: u32 }, Process }             // Process: no goto target
+pub enum EnvSource { File { uri: Uri, line: u32 }, Process }             // Process: no goto target
 ```
 
 Files: `parsing/env.rs` (dotenv parsing, lookup + loader recognition, settings-field binding), `linking.rs` (per-instance file binding, index merge by source precedence). A file that fails to parse degrades its entries to `[unparsed]` values, never an error.
 
 ## 7. Cross-References
 
-- **Depends on:** [E07](../foundations/E07-data-model.md) — `env_index`; [E15](../foundations/E15-app-config.md) — file watching and toggles.
-- **Related:** [F02](F02-diagnostics.md) — catalog row for `env/undefined-key`; [F08](F08-code-actions.md) — action conventions; laravel-ls (prior art) — the `.env` feature set this adapts.
+- **Depends on:** [E07](../foundations/E07-data-model.md) — `env_index`; [E15](../foundations/E15-app-config.md) — file watching, toggles, and the `env.ignore` key.
+- **Related:** [F02](F02-diagnostics.md) — catalog row for `env/undefined-key`; [F08](F08-code-actions.md) — action conventions; the `AddEnvKey`/`CopyEnvKey` IDs live in F08's action enum, alongside their table rows; laravel-ls (prior art) — the `.env` feature set this adapts.
 
 ## 8. Changelog
 
+- **2026-06-12** — Review pass: built-in OS/CI allowlist suppresses `env/undefined-key` by default, extensible via E15's `env.ignore`; "Add `KEY` to `.env`" respecified — the `WorkspaceEdit` appends, a capability-gated `window/showDocument` command opens the line; `AddEnvKey`/`CopyEnvKey` crosslinked to F08's action enum; `Url` → `Uri`.
 - **2026-06-12** — Env-source overhaul: configurable `env_files` + opt-in process env (via E15 REQ-CFG-05); REQ-ENV-08 path discovery and per-instance file binding for starlette `Config`, pydantic-settings `env_file`, python-dotenv, environs; REQ-ENV-02 extended to those loaders' lookup shapes.
 - **2026-06-12** — Doc-verification fixes: `validation_alias` precedence over `alias`; recorded that pydantic-settings loads `.env` only via explicit `env_file=` and why our file-based wording stays correct.
 - **2026-06-12** — Capability restructure: REQ-ENV-04/05 moved out to [F10](F10-hover.md), [F11](F11-completion.md), [F13](F13-navigation.md).

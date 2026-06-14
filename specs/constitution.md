@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 >
-> **Version:** 1.1   ·   **Last updated:** 2026-06-12
+> **Version:** 1.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** The governing rules for both the product and its specs — the principles fastapi-lsp must honor, and the conventions every spec in this suite follows.
 
@@ -23,7 +23,7 @@ These are the rules the server must honor in every feature. Specs cite them as "
 | P3 | Never panic on partial code | Users edit mid-keystroke. Extractors return partial facts for broken syntax; the server must stay up and useful. |
 | P4 | Only diagnose what is positively wrong | A diagnostic fires only when the code is provably incorrect from the indexed facts. Incomplete or unresolvable code gets silence, not guesses. |
 | P5 | Complement the type checker, never duplicate it | Pylance/ty own types. This server owns framework semantics: routes, prefixes, dependencies, templates — things that live in string literals and decorator wiring. |
-| P6 | Fast enough to forget it's there | Workspace scan completes in seconds on large projects; re-linking after an edit is debounced and cheap. A pure in-memory graph walk, never a re-parse of the world. |
+| P6 | Fast enough to forget it's there | Workspace scan completes in seconds on large projects; re-linking after an edit is debounced and cheap. A pure in-memory graph walk, never a re-parse of the world. The measurable budgets live in [E01 §8](foundations/E01-architecture.md): initial scan ≤ 2 s per 1,000 indicator-matched files, relink ≤ 100 ms on the large fixture, hover/completion p95 ≤ 50 ms. |
 
 ## 3. Engineering Principles
 
@@ -58,6 +58,8 @@ A spec moves `Draft → In Review → Approved`, and can end in one of two termi
 - **Deprecated** — was Approved, now superseded. Set the status and move the file to `deprecated/`.
 - **Rejected** — considered and turned down. Set the status and move the file to `rejected/`.
 
+Continuously-maintained meta docs — the index, glossary, and roadmap — carry a fourth status instead: **Living**. A Living doc never graduates through the lifecycle; it's simply kept current, updated in the same edit as the specs it tracks.
+
 Archived specs keep their name; the index lists them so the trail stays visible. Every change gets a dated changelog entry.
 
 ## 5. The Recurring Example Cast
@@ -65,7 +67,7 @@ Archived specs keep their name; the index lists them so the trail stays visible.
 Every spec draws its examples from the same small project: **the bookshop API**, a workspace the specs return to again and again.
 
 - **`app/main.py`** — creates `app = FastAPI()` and wires `app.include_router(books.router, prefix="/api")`.
-- **`app/routers/books.py`** — `router = APIRouter(prefix="/books", tags=["books"])` with handlers `list_books` (`GET /`), `get_book` (`GET /{book_id}`), and `create_book` (`POST /`). The fully resolved path of `get_book` is therefore `/api/books/{book_id}`.
+- **`app/routers/books.py`** — `router = APIRouter(prefix="/books", tags=["books"])` with handlers `list_books` (`GET /`), `get_book` (`GET /{book_id}`), and `create_book` (`POST /`). The fully resolved path of `get_book` is therefore `/api/books/{book_id}`, while `list_books` resolves to `/api/books/` — trailing slash included, because trailing slashes are significant.
 - **`app/deps.py`** — `get_db()` yields a session; `get_current_user(db = Depends(get_db))` depends on it. The classic two-level dependency chain.
 - **`app/models.py`** — `class Book(BaseModel)` with `id`, `title`, `author` fields, used as `response_model=Book`.
 - **`app/pages.py`** — `templates = Jinja2Templates(directory="templates")` and a handler returning `templates.TemplateResponse("book_list.html", ...)`. The workspace has `templates/book_list.html` and `templates/base.html`.
@@ -86,5 +88,6 @@ When a spec needs a mistake to illustrate a diagnostic, it breaks the bookshop: 
 
 ## 8. Changelog
 
+- **2026-06-12** — v1.2: P6 now cites the measurable budgets in E01 §8; §4.4 gains the **Living** status for continuously-maintained meta docs; the bookshop cast notes that `list_books` resolves to `/api/books/` — trailing slashes are significant.
 - **2026-06-12** — v1.1: recorded the rejected hybrid runtime-introspection alternative (laravel-ls's model) under Engineering Principles.
 - **2026-06-12** — Initial constitution: six product principles, the bookshop example cast, naming and diagnostic-code conventions.

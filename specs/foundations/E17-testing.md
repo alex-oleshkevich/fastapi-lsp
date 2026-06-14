@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** The test categories, the e2e harness, and the fixture corpus every feature is verified against.
 >
@@ -14,25 +14,28 @@
 
 ## 1. Purpose & Scope
 
-Two layers, mirroring the architecture: Rust unit tests prove extraction and linking on source snippets; Python e2e tests prove the protocol end to end against real fixture apps. Every feature spec's acceptance criteria land in one of these two layers.
+Two layers, mirroring the architecture: Rust unit tests prove extraction and linking on source snippets; Python e2e tests prove the protocol end to end against real fixture apps. Each spec's REQ items are the testable contract — every REQ is verified in one of these layers.
 
 ## 2. Detailed Specification
 
 ### 2.1 Unit tests (Rust)
 
-Unit tests live beside their module and feed Python snippets straight to the extractors — no LSP, no files on disk.
+Unit tests live beside their module and feed Python snippets straight to the extractors — no LSP, no files on disk. Each snippet carries a module path: import-aware binding ([E07 REQ-IDX-06](E07-data-model.md)) resolves names through module identity, so `extract` and `link` must know which file a snippet pretends to be.
 
 ```rust
 // src/parsing/routes.rs  (#[cfg(test)])
 #[test]
 fn resolves_prefix_through_include() {
-    let facts_main  = extract(r#"app.include_router(books.router, prefix="/api")"#);
-    let facts_books = extract(r#"
+    let facts_main  = extract("app/main.py", r#"
+from app.routers import books
+app.include_router(books.router, prefix="/api")
+"#);
+    let facts_books = extract("app/routers/books.py", r#"
 router = APIRouter(prefix="/books")
 @router.get("/{book_id}")
 def get_book(book_id: int): ...
 "#);
-    let linked = link(&[facts_main, facts_books]);
+    let linked = link(&[("app/main.py", facts_main), ("app/routers/books.py", facts_books)]);
     assert_eq!(linked.route("get_book").resolved_path, "/api/books/{book_id}");
 }
 ```
@@ -48,10 +51,10 @@ def get_book(book_id: int): ...
 @pytest.mark.asyncio
 async def test_workspace_symbols_include_resolved_path(client: LanguageClient):
     syms = await client.workspace_symbol_async(WorkspaceSymbolParams(query="books"))
-    assert any(s.name == "GET /api/books/{book_id}" for s in syms)
+    assert any(s.name == "GET /api/books/{book_id} · get_book" for s in syms)
 ```
 
-Tests open fixture files, wait for `publishDiagnostics` (the signal that pass 2 ran — never a fixed sleep), then call the method under test. One `test_*.py` per capability spec (F02, F08, F10–F15), so the test layout mirrors the spec layout.
+Tests open fixture files, wait for `publishDiagnostics` (the signal that pass 2 ran — never a fixed sleep), then call the method under test. This wait is safe even on clean fixtures: the server always publishes diagnostics for a newly opened file, empty array included ([E01 REQ-ARCH-10](E01-architecture.md)), so the harness can never deadlock waiting on a file with nothing wrong. One `test_*.py` per capability spec (F02, F08, F10–F15), so the test layout mirrors the spec layout.
 
 **REQ-TST-02 — Every LSP capability a feature spec promises has at least one e2e test** exercising it through the real protocol against a fixture app. The client fixture is parameterized over two capability profiles — *maximal* (snippets, documentLink, codeLens resolve) and *minimal* (bare LSP) — so degraded paths (plain-text completions, no lenses) are tested, not just the happy editor.
 
@@ -74,6 +77,8 @@ nvim --headless --noplugin -u e2e/editor/minimal_init.lua \
 
 The [E01 §5.6](E01-architecture.md) rules are tested explicitly at layer 2: out-of-order-looking `didChange` bursts leave the document consistent (REQ-ARCH-08); a fixed diagnostic re-publishes as an empty array (REQ-ARCH-10); `initialize` returns before the scan finishes and `workDoneProgress` begin/end arrive (REQ-ARCH-11); `$/cancelRequest` on an in-flight request yields the `RequestCancelled` error, never silence; and file-watch events keep the index honest (REQ-ARCH-12) — creating a fixture file surfaces its routes in workspace symbols, deleting it removes them and clears its diagnostics, and a watcher change to an *open* file does not clobber the editor buffer.
 
+The cancellation test is satisfiable only because request concurrency stays at the framework default (E01 REQ-ARCH-08) — a globally serialized server could never receive the cancel mid-request. Timing-sensitive assertions (scan, relink, hover latency) test against the concrete budgets in [E01 §8](E01-architecture.md).
+
 ### 2.4 Debugging aid
 
 `lsp-devtools agent` (same project as pytest-lsp) proxies a real editor session against the binary and records the JSON-RPC traffic for inspection — the tool for "an editor misbehaves but the e2e suite is green". A note in the README, not a test layer.
@@ -84,6 +89,8 @@ Fixtures are real, runnable-in-principle apps under `e2e/fixtures/` — the cons
 
 - **`bookshop/`** — `FastAPI()` app, nested prefixed router, two-level `Depends` chain, Pydantic model, Jinja templates, and a `tests/` directory with `TestClient` calls. Exercises F01–F05.
 - **`health/`** — raw Starlette app with `Route`, `Mount`, and `StaticFiles`. Exercises F06.
+- **`factory/`** — the app built inside `def create_app():`, with function-local routers wired by settings. Proves extraction works at any nesting depth — the default shape for settings-dependent apps.
+- **`srclayout/`** — a small app under `src/`, importable as `app.*` only through source-root inference ([E07 §3.4](E07-data-model.md)). Proves module-path resolution beyond the flat layout.
 - Deliberately broken variants (a param mismatch, a duplicate route, a `Depends(get_db())`) live in `bookshop/` behind clearly named files, so diagnostic tests assert on real positions.
 
 ### 2.6 Commands
@@ -111,7 +118,7 @@ lsp-devtools agent -- ./target/debug/fastapi-lsp --stdio  # record a real sessio
 ## 4. Cross-References
 
 - **Depends on:** [E01-architecture](E01-architecture.md) — the two layers under test; [E02-folder-structure](E02-folder-structure.md) — where tests live.
-- **Related:** every `F##` spec — acceptance criteria reference REQ-TST-01/02.
+- **Related:** every `F##` spec — its REQ items are the testable contract that REQ-TST-01/02 verify.
 
 ## 5. Changelog
 

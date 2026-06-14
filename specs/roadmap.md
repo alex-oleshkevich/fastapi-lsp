@@ -14,6 +14,8 @@
 
 The route index comes first because everything else reads from it: diagnostics check it, test linking matches against it, even templates hang off handlers it discovered. After that, each milestone is independently shippable — the server is useful from M1 onward and simply gets smarter.
 
+The first public release is **M1 + M2 + M7**: a navigable route index, the linter, and a way to install it. The foundation specs move Draft → In Review when M0 implementation starts.
+
 ## Milestones
 
 ### M0 — Skeleton
@@ -68,18 +70,21 @@ Registration recognition, the workspace + stock signature sources, kwarg complet
 
 The `lsp`/`check` subcommand split, code filters, text/json output, and the shared-engine parity tests.
 
+Stretch: a `fastapi-lsp routes` subcommand that prints the resolved route table — the `flask routes` equivalent — recorded as OQ-CLI-2 in [F17](features/F17-cli.md).
+
 ## Sequencing rules
 
 - M2–M5 each depend only on M1 and can be reordered if priorities shift.
 - M6 depends on M1's index shape but on no other milestone.
 - M7 can start any time after M1 produces a useful binary.
-- M8 depends on M2 (its quick fixes attach to the diagnostic catalog); the test-stub action additionally wants M4.
-- M9 depends only on M0 — env features touch no route machinery, so it's a good parallel track or warm-up milestone.
-- M10 likewise depends only on M0; another independent track.
+- M8 depends on M2 (its quick fixes attach to the diagnostic catalog) and on M3 (the extract-dependency gate cites F03's name binding); the test-stub action additionally wants M4.
+- M9's hover/completion/goto need only M0 — env features touch no route machinery — but its `env/undefined-key` diagnostic and quick fixes ride on M2's publishing and F08 quick-fix plumbing.
+- M10's kwarg completion needs only M0, but its applied-chain storage and the hover-card line need M1's route index and hover.
 - M11 depends on M2 (it reuses the diagnostics engine wholesale).
 
 ## Changelog
 
+- **2026-06-12** — Review pass: dependency claims corrected (M8 also needs M3; M9's diagnostic and quick fixes need M2; M10's applied chains and hover line need M1); first public release defined as M1 + M2 + M7; foundations move Draft → In Review at M0 start; `fastapi-lsp routes` stretch note added (OQ-CLI-2 in F17).
 - **2026-06-12** — Added M11 (CLI check mode), depending on M2.
 - **2026-06-12** — Added M10 (middleware), depending only on M0.
 - **2026-06-12** — Added M9 (env & settings), depending only on M0.

@@ -2,9 +2,9 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
-> **Purpose:** The binary's command-line surface: the `lsp` subcommand (stdio or HTTP transport) and the `check` subcommand — the same diagnostics engine running as a standalone linter.
+> **Purpose:** The binary's command-line surface: the `lsp` subcommand (stdio or TCP transport) and the `check` subcommand — the same diagnostics engine running as a standalone linter.
 >
 > **Depends on:** [E01-architecture](../foundations/E01-architecture.md), [F02-diagnostics](F02-diagnostics.md)   ·   **Related:** [E15-app-config](../foundations/E15-app-config.md)
 
@@ -29,10 +29,10 @@ One binary, two modes. `lsp` is the long-running server an editor spawns; `check
 
 ```
 fastapi-lsp lsp --stdio                          # default; what editors spawn
-fastapi-lsp lsp --http --address 127.0.0.1 --port 9257
+fastapi-lsp lsp --tcp --address 127.0.0.1 --port 9257
 ```
 
-`--stdio` is the default when no transport flag is given. `--http` serves the LSP JSON-RPC stream over a socket for debugging and remote-editor setups; `--address` defaults to `127.0.0.1` and `--port` to `9257`. The bare invocation `fastapi-lsp --stdio` (no subcommand) keeps working as an alias, since several editors' default configs assume that shape.
+`--stdio` is the default when no transport flag is given. `--tcp` serves the LSP JSON-RPC stream over a TCP socket — `tower-lsp-server` supports this directly — for debugging and remote-editor setups; `--address` defaults to `127.0.0.1` and `--port` to `9257`. (LSP defines no HTTP transport, so there is none here.) The bare invocation `fastapi-lsp --stdio` (no subcommand) keeps working as an alias, since several editors' default configs assume that shape.
 
 ### 3.2 `fastapi-lsp check`
 
@@ -77,13 +77,14 @@ CI runs `fastapi-lsp check . --ignore env/undefined-key` — the env hints are n
 ## 6. Open Questions & Decisions
 
 - **OQ-CLI-1** — `check --fix` applying the deterministic quick fixes. Wants the action machinery decoupled from `WorkspaceEdit` first.
+- **OQ-CLI-2** — `fastapi-lsp routes`: print the resolved route table — method, resolved path, handler, source location. The `flask routes` / django-extensions `show_urls` equivalent, which FastAPI itself lacks. Near-zero marginal cost: the route index and the CLI plumbing both already exist; the subcommand is a formatter over them. Recorded as a roadmap stretch goal.
 
 ## Data Shapes & Code Map
 
 ```rust
 // src/main.rs — clap derive
 pub enum Cli { Lsp(LspArgs), Check(CheckArgs) }
-pub struct LspArgs   { pub stdio: bool, pub http: bool, pub address: IpAddr, pub port: u16 }
+pub struct LspArgs   { pub stdio: bool, pub tcp: bool, pub address: IpAddr, pub port: u16 }
 pub struct CheckArgs { pub path: PathBuf, pub only: Vec<DiagCode>, pub ignore: Vec<DiagCode>,
                        pub format: OutputFormat }
 pub enum OutputFormat { Text, Json }
@@ -102,4 +103,5 @@ Files: `main.rs` (parsing + dispatch), `check.rs` (one-shot pipeline + printers)
 
 ## 8. Changelog
 
+- **2026-06-12** — v0.2: renamed `--http` to `--tcp` — LSP JSON-RPC over a TCP socket; there is no HTTP transport. Added OQ-CLI-2: a `fastapi-lsp routes` route-table subcommand.
 - **2026-06-12** — Initial draft: `lsp` transports, `check` with code filters and text/json output, shared-engine rule.

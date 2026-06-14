@@ -61,37 +61,30 @@ This spec covers:
 
 <The rule, one idea per sentence. State pre/postconditions where they matter.>
 
-### 5.2 Data model
+### 5.2 Data Shapes & Code Map
 
-<Say what these tables are before showing them. Label code with its file path.>
+<Say what these shapes are before showing them. Quote the owning structs or the
+feature's pure-function signatures; open the block with a file-path comment.>
 
-```dart
-// lib/data/tables/<name>.dart
-class <Name>s extends Table {
-  IntColumn get id => integer().autoIncrement()();
-  // ...
+```rust
+// src/state/mod.rs
+pub struct <Name>Record {
+    pub uri: Uri,
+    pub range: Range,
+    // ...
 }
 ```
 
-<Then explain the keys, indexes, and nullability rules in prose.>
+<Then explain ownership and invariants in prose, and close with the file map —
+e.g. "Files: `features/<name>.rs`. No state, no errors — empty index means
+empty result.">
 
-### 5.3 Screens
-
-<Describe each surface. Include an ASCII mockup (~78 cols) and its states.>
-
-```
-┌──────────────────────────────────────┐
-│  <Screen title>                       │
-│                                       │
-│  <layout sketch>                      │
-└──────────────────────────────────────┘
-```
-
-States: empty · loading · error · <feature-specific>.
+<!-- The product has no screens (constitution §6) — describe editor surfaces
+     (hover cards, completion popups, diagnostics) in prose, never ASCII mockups. -->
 
 ## 6. Visualizations
 
-<!-- Mermaid for flows/lifecycles, ASCII for screens, tables for matrices.
+<!-- Mermaid for flows/lifecycles, tables for matrices.
      Follow references/mermaid.md — init block, labeled arrows, colored nodes. -->
 
 ```mermaid
@@ -137,6 +130,11 @@ stateDiagram-v2
 
 ## 12. Changelog
 
-<!-- Newest first. ISO dates. Narrative entries — what changed and why. -->
+<!-- Newest first. ISO dates. Narrative entries — what changed and why.
+
+     Template's own changelog (delete with the other comments when you copy):
+     - 2026-06-12 — §5.2 example switched from the Dart/Drift placeholder to the
+       suite's Rust "Data Shapes & Code Map" convention; ASCII "Screens" section
+       deleted (constitution §6: the product has no screens). -->
 
 - **<YYYY-MM-DD>** — Initial draft.

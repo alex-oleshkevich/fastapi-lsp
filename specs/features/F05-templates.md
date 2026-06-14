@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** Click-to-template and template-name completion for Jinja usage in Python code, the missing-template diagnostic, and `url_for` intelligence inside template files.
 >
@@ -34,7 +34,7 @@ This spec covers:
 
 **REQ-TPL-01 — Template strings are recognized by call shape.**
 
-Pass 1 records the string literal in: `<env>.TemplateResponse(<name>, ...)` (both the modern `(request, name)` and legacy `(name, context)` argument orders), `<env>.get_template(<name>)`, and `render_template(<name>, ...)`. `<env>` is any name bound to a `Jinja2Templates(...)` or `jinja2.Environment(...)` construction in the file or its imports. Only string literals participate (P4).
+Pass 1 records the string literal in: `<env>.TemplateResponse(<name>, ...)` (both the modern `(request, name)` and legacy `(name, context)` argument orders) and `<env>.get_template(<name>)`. `<env>` is any name bound to a `Jinja2Templates(...)` or `jinja2.Environment(...)` construction in the file or its imports. Only string literals participate (P4).
 
 ### 3.2 The index
 
@@ -47,6 +47,8 @@ Pass 2 scans each template root from [E15 REQ-CFG-01](../foundations/E15-app-con
 **REQ-TPL-06 — Template files are scanned for `url_for` sites.**
 
 Jinja templates call `{{ url_for('get_book', book_id=book.id) }}` (and `{{ request.url_for(...) }}`); a renamed route breaks them silently. Files under template roots are scanned lexically for `url_for(`/`url_path_for(` occurrences whose first argument is a string literal — a narrow lexical pass, not a Jinja parse, because we only need these islands. Each site joins the same `url_for` facts as Python ones ([F01](F01-route-index.md) REQ-ROUTE-11), so it gets the full treatment: `url/unknown-name` and `url/param-mismatch` diagnostics in the template file, route-name completion inside the string, and goto-to-handler. Keyword arguments are only checked when they're literal Jinja arguments (`book_id=book.id` counts as *present*; its value is opaque — only names are compared).
+
+> **Note:** The interactive features here — completion, goto, and hover on `url_for` — only reach a template the editor actually sends us. That requires attaching the server to the template filetypes: [F07](F07-editor-integration.md)'s configurations register `html`/`jinja` alongside Python. Pushed diagnostics for unopened templates are unaffected — they ride on the workspace scan.
 
 ### 3.4 Capability surface
 
@@ -79,15 +81,16 @@ pub struct TemplateUrlForSite { pub name: String, pub string_range: Range,
                                 pub kwarg_names: Vec<String> }           // values opaque by design
 ```
 
-The index itself is E07's `template_index: DashMap<String, Url>`. Files: `parsing/templates.rs` (both scans), `linking.rs` (root scan + precedence). A root that fails to read logs and yields an empty contribution — no error type crosses the module boundary.
+The index itself is `template_index` (relative path → file `Uri`) in [E07](../foundations/E07-data-model.md)'s pass-2 snapshot; the `url_for` sites from the lexical scan land in E07's pass-1 `template_facts: DashMap<Uri, Vec<TemplateUrlForSite>>`. Files: `parsing/templates.rs` (both scans), `linking.rs` (root scan + precedence). A root that fails to read logs and yields an empty contribution — no error type crosses the module boundary.
 
 ## 7. Cross-References
 
-- **Depends on:** [E15](../foundations/E15-app-config.md) — root resolution; [E07](../foundations/E07-data-model.md) — `template_index`.
-- **Related:** [F02](F02-diagnostics.md) — catalog conventions and the `url/*` checks REQ-TPL-06 feeds.
+- **Depends on:** [E15](../foundations/E15-app-config.md) — root resolution; [E07](../foundations/E07-data-model.md) — `template_index` and `template_facts`.
+- **Related:** [F02](F02-diagnostics.md) — catalog conventions and the `url/*` checks REQ-TPL-06 feeds; [F07](F07-editor-integration.md) — attaching the server to template filetypes.
 
 ## 8. Changelog
 
+- **2026-06-12** — Review pass: dropped `render_template` from REQ-TPL-01 (a Flask API; as a bare function it contradicted the env-binding rule); stated the F07 template-filetype dependency for in-template features; template-side facts aligned with E07's `template_facts`.
 - **2026-06-12** — Added REQ-TPL-06 (`url_for` sites inside template files, lexical scan); template roots now come from the [E15](../foundations/E15-app-config.md) config schema.
 - **2026-06-12** — Capability restructure: REQ-TPL-03/04 moved out to [F13](F13-navigation.md) and [F11](F11-completion.md).
 - **2026-06-12** — Initial draft: reference shapes, root-precedence index, goto/completion/diagnostic.

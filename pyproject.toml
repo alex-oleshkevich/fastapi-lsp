@@ -1,0 +1,27 @@
+[project]
+name = "fastapi-lsp"
+version = "0.1.0"
+description = "Language server for FastAPI and Starlette"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+keywords = ["fastapi", "starlette", "lsp", "language-server"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[build-system]
+requires = ["maturin>=1.5"]
+build-backend = "maturin"
+
+[tool.maturin]
+binaries = ["fastapi-lsp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["e2e"]
+norecursedirs = ["e2e/fixtures"]

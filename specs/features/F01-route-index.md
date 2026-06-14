@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** The route index — extracting every route, resolving its final path through the router graph — and the navigation features built on it: symbols, hover, inlay hints, goto definition.
 >
@@ -27,6 +27,7 @@ This spec covers:
 - Diagnostics on the index — owned by [F02](F02-diagnostics.md).
 - Table-style `Route(...)`/`Mount(...)` extraction — owned by [F06](F06-starlette-routing.md), feeding the same index.
 - Anything type-level about handler signatures (constitution P5).
+- `root_path` — it's proxy metadata, not a routing prefix. It never affects matching, so resolved paths ignore it.
 
 ## 3. Background & Rationale
 
@@ -48,7 +49,7 @@ Path parameters use Starlette's converter syntax — `{name}` or `{name:converte
 
 **REQ-ROUTE-02 — Router and include facts.**
 
-`<name> = APIRouter(prefix=..., tags=..., dependencies=...)` produces a router fact. `<obj>.include_router(<target>, prefix=...)` produces an include fact, recording the target expression (`books.router` or bare `router`) and the prefix.
+`<name> = APIRouter(prefix=..., tags=..., dependencies=...)` produces a router fact. `<obj>.include_router(<target>, prefix=...)` produces an include fact, recording the target expression (`books.router` or bare `router`) and the prefix. A `dependencies=[...]` kwarg on the include call is captured too — those `Depends` apply to every route under the included router ([F03](F03-dependency-graph.md)).
 
 **REQ-ROUTE-03 — Prefix and path values resolve literals and module constants only.**
 
@@ -60,11 +61,19 @@ A path or prefix value is resolved if it is a string literal, or a name bound at
 
 For each route fact, the linker finds its router, then follows include edges upward: which include call targets this router, on which object, with what prefix — repeating until it reaches a `FastAPI()`/`Starlette()` app or runs out of edges. Include targets like `books.router` are resolved through the including file's imports (`from app.routers import books` → the `router` in `app/routers/books.py`).
 
-The resolved path is the concatenation of every prefix on the chain plus the decorator path, with slashes normalized (no doubled `//`, no trailing slash except root). FastAPI itself rejects prefixes ending in `/` at startup; the linker normalizes them anyway so navigation still works on code that hasn't been run yet.
+The resolved path is the concatenation of every prefix on the chain plus the decorator path. The only normalization is collapsing a doubled `//` at a join. Trailing slashes are significant: Starlette registers `/books` and `/books/` as distinct patterns, and `redirect_slashes` merely answers the other spelling with a 307 at runtime. So `list_books` — `@router.get("/")` on `APIRouter(prefix="/books")`, included with `prefix="/api"` — resolves to `/api/books/`, trailing slash included.
+
+FastAPI itself rejects prefixes ending in `/` at startup; the linker still collapses the resulting `//` so navigation works on code that hasn't been run yet.
 
 **REQ-ROUTE-05 — Partial chains stay useful.**
 
-A route whose chain never reaches an app (router not yet included) or crosses an `Unresolved` prefix gets `resolved_path: Unresolved` but keeps everything else — it still appears in document symbols and hover, marked `⟨unresolved⟩/books/{book_id}` with the longest-known suffix. Multiple includes of one router (mounted twice) yield one record per mount point.
+A route whose chain never reaches an app (router not yet included) or crosses an `Unresolved` prefix gets `resolved_path: Unresolved` but keeps everything else — it still appears in document symbols and hover, marked `⟨unresolved⟩/books/{book_id}` with the longest-known suffix.
+
+Multiple includes of one router (mounted twice) yield one record per mount instance. The index shape makes that explicit — `route_index: HashMap<RouteId, Vec<RouteRecord>>` ([E07](../foundations/E07-data-model.md)) — and features that anchor per handler aggregate the `Vec`.
+
+**REQ-ROUTE-12 — App factories are wired like everything else.**
+
+`def create_app():` is the default shape for settings-dependent wiring, so extraction can't stop at module level. `AppDecl`, `IncludeCall`, and router facts are extracted at any nesting depth. A function-local app or router participates in chain resolution like any other object, scoped to that function's body — two factories that each define their own `app` never cross-link.
 
 ### 5.3 Route names and `url_for` recognition
 
@@ -88,6 +97,18 @@ This spec owns the index; the user-facing features over it live in the capabilit
 
 You open the bookshop fresh. Workspace symbols for `books` lists three routes with full paths. You hover `get_book`: the card shows the chain through `main.py`'s include. The decorator says `/{book_id}` but an inlay hint adds `→ /api/books/{book_id}`. You ctrl-click `books.router` in `main.py` and land on the `APIRouter` line in `books.py`.
 
+Factories index too (REQ-ROUTE-12). Here's the settings-dependent variant of the same wiring:
+
+```python
+# app/main.py — app factory
+def create_app(settings: Settings) -> FastAPI:
+    app = FastAPI()
+    app.include_router(books.router, prefix="/api")
+    return app
+```
+
+`app` is local to `create_app`, but the include fact still links `books.router` into the chain — `get_book` resolves to `/api/books/{book_id}` exactly as in the module-level version.
+
 ## 7. Edge Cases & Failure Modes
 
 - Router included before it's defined in scan order → fine; linking runs on facts, not file order.
@@ -100,6 +121,7 @@ You open the bookshop fresh. Workspace symbols for `books` lists three routes wi
 
 - **OQ-ROUTE-1** — Class-attribute routers (`self.router = APIRouter()`); revisit if real projects hit it.
 - ~~OQ-ROUTE-2~~ — moved to [F12](F12-symbols.md) as OQ-SYM-1.
+- **OQ-ROUTE-3** — Security-scheme URL literals: `OAuth2PasswordBearer(tokenUrl="token")` and `authorizationUrl=` name routes as strings, so goto, completion, and a validity diagnostic against the route index are all plausible. Note the relative-path semantics — `tokenUrl="token"` resolves against the app root at runtime, so a checker must honor that before comparing.
 
 ## Data Shapes & Code Map
 
@@ -110,7 +132,8 @@ Pass-1 facts and the enums that make "unresolved" a value, not an error:
 pub struct RouteFact { pub object: String, pub methods: Vec<Method>, pub path: PathValue,
                        pub handler: Option<HandlerRef>, pub kwargs: RouteKwargs, pub name: Option<String> }
 pub struct RouterDecl { pub name: String, pub prefix: PathValue, pub kwargs: RouterKwargs }
-pub struct IncludeCall { pub object: String, pub target: DottedName, pub prefix: PathValue }
+pub struct IncludeCall { pub object: String, pub target: DottedName, pub prefix: PathValue,
+                         pub dependencies: Vec<DottedName> }
 pub struct AppDecl { pub name: String, pub kind: AppKind }      // AppKind::{FastApi, Starlette}
 
 pub enum PathValue { Literal(String), Constant(String, String), Unresolved }   // (name, value)
@@ -131,6 +154,7 @@ Files: `parsing/routes.rs` (extraction), `linking.rs` (chain walk, trie build, n
 
 ## 10. Changelog
 
+- **2026-06-12** — Review pass: trailing slashes are significant in resolved paths (`/api/books/` ≠ `/api/books`; only doubled `//` collapses); multi-mount records keyed `RouteId → Vec<RouteRecord>` per [E07](../foundations/E07-data-model.md); app-factory extraction (REQ-ROUTE-12) with example; `IncludeCall` captures `dependencies=[...]`; `root_path` declared a non-goal; new OQ-ROUTE-3 (security-scheme URL literals).
 - **2026-06-12** — Doc-verification fixes: path-converter syntax (`{id:int}`, multi-segment `{p:path}`); named-Mount name namespacing (`admin:dashboard`); `url_path_for` recognized alongside `url_for`; trailing-slash-prefix note. Touches [E07](../foundations/E07-data-model.md), [F02](F02-diagnostics.md).
 - **2026-06-12** — Capability restructure: REQ-ROUTE-06…09 moved out to [F12](F12-symbols.md), [F10](F10-hover.md), [F14](F14-inlay-hints.md), [F13](F13-navigation.md); REQ-ROUTE-11 narrowed to fact extraction (features now in F11/F13). The gap in REQ numbering is intentional.
 - **2026-06-12** — Added §5.7 `url_for` support: route-name indexing (REQ-ROUTE-10), completion and goto on `url_for` strings (REQ-ROUTE-11). Touches [E07](../foundations/E07-data-model.md) (`route_names`) and [F02](F02-diagnostics.md) (`url/*` codes).

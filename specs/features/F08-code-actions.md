@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** The edits the server offers, not just reports: quick fixes paired with the F02 diagnostics, and refactors — named dependency extraction, model creation, `Annotated` conversion, router extraction, test-stub generation.
 >
@@ -36,13 +36,15 @@ This spec covers:
 
 Constitution P4 applies to edits even harder than to squiggles: a wrong diagnostic wastes attention, a wrong edit corrupts code. Each action below states its gate; when the gate fails (two import candidates, ambiguous rename target), the action simply doesn't appear. Every action declares its proper kind (`quickfix`, `refactor.extract`, `refactor.rewrite`, `source`) so editors surface it in the right menu.
 
+Actions that create files — "Create template", "Create model" — express the creation as `WorkspaceEdit.documentChanges` with a `CreateFile` operation. When the client doesn't advertise `workspace.workspaceEdit.resourceOperations` with `create`, those actions are withheld: a silently dropped file creation is a corrupted edit.
+
 ### 3.2 Quick fixes (kind: `quickfix`)
 
 Each fix attaches to its diagnostic's range and ships in the same milestone as the check itself where noted.
 
 | Diagnostic | Action | Edit | Gate |
 |---|---|---|---|
-| `di/depends-called` | Remove call — pass the function itself | `Depends(get_db())` → `Depends(get_db)` | Always (the range is exact). |
+| `di/depends-called` | Remove call — pass the function itself | `Depends(get_db())` → `Depends(get_db)` | The narrowed diagnostic fired: the called function has `yield`, or is used elsewhere as bare `Depends`. |
 | `route/param-missing-arg` | Add parameter `book_id` to handler | Insert `book_id: str` into the signature (unannotated path params are `str` to FastAPI) | Signature has no `*args`/`**kwargs`. |
 | `route/arg-missing-param` | Rename parameter to `{book_id}` | Rename the function parameter to the unbound path param | Exactly one unbound path param exists. |
 | `route/arg-missing-param` | Add `/{book}` segment to path | Append the segment to the decorator path literal | Path is a literal (not `Unresolved`). |
@@ -52,6 +54,10 @@ Each fix attaches to its diagnostic's range and ships in the same milestone as t
 | `model/unknown-response-model` | Create model `BookOut` | The create-model refactor (§3.4), surfaced as a fix | §3.4's gate. |
 | `route/shadowed` | Move route above `get_book` | Reorder the two handlers | Both handlers are in the same file. |
 | `model/unknown-body-model` | Create model `BookCreate` | The create-model refactor (§3.4), surfaced as a fix | §3.4's gate. |
+| `env/undefined-key` | Add `SMTP_HOST` to `.env` | Append `SMTP_HOST=` to the workspace `.env` | Contract in [F09](F09-env-settings.md) REQ-ENV-07. |
+| `env/undefined-key` | Copy `SMTP_HOST` from `.env.example` | Copy the example's `KEY=value` line into `.env` | Key exists only in `.env.example` ([F09](F09-env-settings.md) REQ-ENV-07). |
+
+A note on the two `route/arg-missing-param` rows: that diagnostic now fires only as a near-miss heuristic, at Hint severity — an unbound handler arg whose name sits within edit distance 2 of the unbound path param. The paired fixes ride the same trigger; the rename fix is exactly the rename the heuristic spotted.
 
 Was → become, one pair per text-edit fix (file-creating fixes noted inline):
 
@@ -92,7 +98,7 @@ The FastAPI-docs pattern: a repeated `Annotated[Session, Depends(get_db)]` deser
 
 With the cursor on an `Annotated[T, Depends(fn)]` annotation, the action **"Extract to named dependency `SessionDep`"**:
 
-1. Inserts a module-level alias above the first use — name proposed as `{T}Dep` (`SessionDep` from `Session`), adjustable via the rename that editors apply to the inserted snippet:
+1. Inserts a module-level alias above the first use, named `{T}Dep` (`SessionDep` from `Session`). The edit is a plain `TextEdit` with that fixed name — LSP `WorkspaceEdit`s carry no snippets and no rename affordance. Want a different name? Run an ordinary `textDocument/rename` on the alias afterwards:
 
 ```python
 # was
@@ -160,7 +166,7 @@ db: Annotated[Session, Depends(get_db)]       # becomes (+ `from typing import A
 
 ### 3.6 Extract router (kind: `refactor.extract`)
 
-On a selection of handlers whose resolved paths share a literal prefix: create the router, rewrite the decorators, add the include. The index proves the rewrite preserves every final URL — that proof is the gate, and it's the action only this server can offer.
+On a selection of handlers whose resolved paths share a literal prefix: create the router, rewrite the decorators, add the include. The index proves every final URL survives the rewrite, character for character — that proof is the gate, and it's the action only this server can offer. Trailing slashes are significant ([F01](F01-route-index.md)), so stripping the `/books` prefix from `@app.get("/books")` leaves the empty string, and the empty string is what gets emitted: `@router.get("/")` would silently change the URL to `/books/`.
 
 ```python
 # was
@@ -172,7 +178,7 @@ def get_book(book_id: int): ...
 # becomes
 router = APIRouter(prefix="/books")
 
-@router.get("/")
+@router.get("")
 def list_books(): ...
 @router.get("/{book_id}")
 def get_book(book_id: int): ...
@@ -208,7 +214,7 @@ You write `def create_book(book: BookCreate, db: Annotated[Session, Depends(get_
 ## 5. Edge Cases & Failure Modes
 
 - Two `schemas.py` candidates (referencing file's package and app root) → imports-first rule usually disambiguates; if not, the action targets the referencing file's package (nearest wins, deterministically).
-- Alias name collision (`SessionDep` already bound) → propose `SessionDep2`? No — gate fails, action withholds the workspace variant and offers same-file extraction with a numbered name only via the editor's rename flow. Never silently shadow.
+- Alias name collision (`SessionDep` already bound) → propose `SessionDep2`? No — the gate fails and the action withholds. Never silently shadow; free up the name first, then extract.
 - Create-model on a lowercase annotation (`book: book_create`) → not offered; the CamelCase gate is what separates "missing model" from "missing variable".
 - Test-stub target file has a name collision (`test_get_book` exists) → append with a numeric suffix.
 
@@ -232,13 +238,14 @@ pub enum Gate { Offer, Withhold }                                        // REQ-
 pub fn actions(state: &WorkspaceState, params: &CodeActionParams) -> Vec<CodeAction>;
 ```
 
-Quick fixes read their inputs from the paired diagnostic's `data` payload ([F02](F02-diagnostics.md) REQ-DIAG-09) instead of re-running analysis. Files: `features/code_actions.rs` (dispatch + gates), one builder module per refactor family.
+Quick fixes read their inputs from the paired diagnostic's `data` payload ([F02](F02-diagnostics.md) REQ-DIAG-09) instead of re-running analysis. `data` is an optimization, not a dependency: when it's absent (the client lacks `publishDiagnostics.dataSupport`), the handler recomputes the same inputs from the snapshot — a cheap pure lookup. Files: `features/code_actions.rs` (dispatch + gates), one builder module per refactor family.
 
 ## 7. Cross-References
 
 - **Depends on:** [F02](F02-diagnostics.md) — the diagnostics quick fixes attach to (resolves its OQ-DIAG-2); [F01](F01-route-index.md) — resolved paths gating extract-router and test stubs.
-- **Related:** [F03](F03-dependency-graph.md) — name binding for §3.3/§3.8; [F04](F04-test-linking.md) — test-stub linking; [F05](F05-templates.md) — template fixes (resolves its OQ-TPL-1); [E07](../foundations/E07-data-model.md) — `model_index`.
+- **Related:** [F03](F03-dependency-graph.md) — name binding for §3.3/§3.8; [F04](F04-test-linking.md) — test-stub linking; [F05](F05-templates.md) — template fixes (resolves its OQ-TPL-1); [F09](F09-env-settings.md) — env quick fixes (REQ-ENV-07 owns their contract); [E07](../foundations/E07-data-model.md) — `model_index`.
 
 ## 8. Changelog
 
+- **2026-06-12** — v0.2 review pass: file-creating actions gated on `resourceOperations.create`; alias extraction is a plain `TextEdit`, no snippet/rename flow; extract-router emits `@router.get("")` to preserve trailing-slash fidelity; quick-fix gates track the narrowed `di/depends-called` and `route/arg-missing-param` triggers; diagnostic `data` made an optimization with snapshot recompute fallback; env quick-fix rows added (F09 REQ-ENV-07).
 - **2026-06-12** — Initial draft: quick-fix table, extract named dependency, create model (imports-first targeting), `Annotated` conversion, extract router, test stubs.

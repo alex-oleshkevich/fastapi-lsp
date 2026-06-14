@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** What fastapi-lsp is, who it's for, and what it does — in plain language. Start here if you're new.
 >
@@ -35,12 +35,18 @@ Each area below is a feature spec; this is the five-second version.
 | Templates | Click-to-template on `TemplateResponse("book_list.html")`, template-name completion, missing-template diagnostics | [F05](features/F05-templates.md) |
 | Raw Starlette | The same features for table-style `Route(...)` / `Mount(...)` apps | [F06](features/F06-starlette-routing.md) |
 | Editor packaging | Zed extension, Neovim/Helix config snippets, Arch package | [F07](features/F07-editor-integration.md) |
+| Code actions | Quick fixes for the diagnostics, plus refactors: extract a named dependency, create a missing model, extract a router | [F08](features/F08-code-actions.md) |
+| Env & settings | Hover, completion, and goto for env keys backed by your `.env` files; `BaseSettings` fields bind to their keys; undefined keys get flagged | [F09](features/F09-env-settings.md) |
+| Middleware | Every registration style recognized, kwarg completion on stock and workspace middleware, each route's applied chain on hover | [F16](features/F16-middleware.md) |
+| CLI check mode | `fastapi-lsp check` runs the same diagnostics as a CI-friendly linter — no editor required | [F17](features/F17-cli.md) |
+
+These rows are the domain areas; how each one actually surfaces in your editor — hover cards, completions, symbols, navigation, inlay hints, code lenses — is owned by the capability specs [F10](features/F10-hover.md)–[F15](features/F15-code-lens.md).
 
 ## What it isn't
 
 - **Not a type checker.** Pylance/ty own types; this server owns framework semantics (per constitution P5).
 - **Not a runtime tool.** It never runs your app, generates OpenAPI specs, or executes endpoints (per P1).
-- **Not a VS Code extension.** The official `fastapi-vscode` already serves that editor.
+- **Not a VS Code extension — by choice, for now.** v1 deliberately focuses on the editors with no framework-aware tooling at all; VS Code already gets basic navigation from the official extension, so the marginal value there is lowest. Revisiting it is recorded as an open question, not a permanent exclusion.
 
 ## How it works, in one paragraph
 
@@ -48,4 +54,5 @@ The server scans the workspace with tree-sitter, extracting per-file facts: rout
 
 ## Changelog
 
+- **2026-06-12** — v0.2: "What it does" now covers code actions (F08), env & settings (F09), middleware (F16), and the CLI check mode (F17), with a pointer to the capability specs F10–F15; the VS Code stance reworded as a deliberate v1 focus on underserved editors, with the revisit recorded as an open question.
 - **2026-06-12** — Initial overview.

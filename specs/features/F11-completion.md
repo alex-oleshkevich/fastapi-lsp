@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.1   ·   **Last updated:** 2026-06-12
+> **Version:** 0.2   ·   **Last updated:** 2026-06-12
 >
 > **Purpose:** Everything `textDocument/completion` offers. All of it is string-position completion — values inside string literals that only the framework indices can know.
 >
@@ -33,7 +33,7 @@ The provider walks up from the cursor via `find_enclosing_call`; if the cursor i
 
 **REQ-CPL-02 — Route paths in client calls.**
 
-Inside the path string of a recognized client call ([F04](F04-test-linking.md) REQ-TLINK-01), every resolved route path for the call's verb — `client.get("` offers `/api/books/`, `/api/books/{book_id}`. Param segments insert as placeholder snippets (`/api/books/${1:book_id}`).
+Inside the path string of a recognized client call ([F04](F04-test-linking.md) REQ-TLINK-01, including `websocket_connect` with verb `WEBSOCKET`), every resolved route path for the call's verb — `client.get("` offers `/api/books/`, `/api/books/{book_id}`. Param segments insert as placeholder snippets (`/api/books/${1:book_id}`).
 
 **REQ-CPL-03 — Route names in `url_for`.**
 
@@ -51,6 +51,14 @@ Inside a recognized env lookup string ([F09](F09-env-settings.md) REQ-ENV-02), t
 
 At a recognized middleware registration site ([F16](F16-middleware.md)), after the class argument, the resolved signature's kwargs complete as `allow_origins=` with the parameter's annotation and default as the detail. Kwargs already present in the call are filtered out. This is the spec's only non-string completion surface; its justification lives in [F16 §1](F16-middleware.md).
 
+### 3.3 Mechanics
+
+**REQ-CPL-07 — Trigger characters and explicit edit ranges.**
+
+Editors auto-invoke completion on identifier characters or on characters the server declares — and every surface above lives inside a string literal, where no identifier character ever fires. The server therefore advertises `triggerCharacters: ["\"", "'", "/", ","]`: the quotes open each surface as it's typed, `/` re-triggers path and template completion one segment at a time, and `,` fires the kwarg surface (REQ-CPL-06, also reachable by manual invoke). Without these, none of the moments in §4 ever happens.
+
+Replacement ranges are the other silent killer. Clients left to guess fall back to word boundaries, and `/`, `{`, and `.` all break words — an item like `/api/books/{book_id}` typed against `"/api/b` gets filtered out or inserted doubled. Every in-string item therefore carries an explicit `textEdit` spanning from just after the opening quote to the cursor, with a `filterText` matching that span (ranges follow the encoding rules of [E01 REQ-ARCH-09](../foundations/E01-architecture.md)). Directory-level template results return `isIncomplete: true`, so the client re-queries as the user descends.
+
 ## 4. Examples & Use Cases
 
 In a test you type `client.get("` and pick `/api/books/{book_id}`; the param drops in as a tab-stop. In a handler you type `templates.TemplateResponse("` and walk `admin/` → `books/` → `list.html` one directory at a time. In a script, `os.getenv("` offers `SMTP_HOST` that so far exists only in `.env.example`.
@@ -64,11 +72,11 @@ In a test you type `client.get("` and pick `/api/books/{book_id}`; the param dro
 
 ```rust
 // src/features/completion.rs
-pub fn complete(state: &WorkspaceState, uri: &Url, pos: Position, caps: &ClientCaps) -> Vec<CompletionItem>;
+pub fn complete(state: &WorkspaceState, uri: &Uri, pos: Position, caps: &ClientCaps) -> Vec<CompletionItem>;
 
 enum Surface { ClientPath { verb: Method }, RouteName, TemplatePath { prefix: String },
                EnvKey, MiddlewareKwarg { class: String } }
-fn classify(state: &WorkspaceState, uri: &Url, pos: Position) -> Option<Surface>;   // REQ-CPL-01 gate
+fn classify(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Surface>;   // REQ-CPL-01 gate
 ```
 
 Files: `features/completion.rs` — `classify` is the only place that walks the tree; each surface then renders from its index. `caps.snippet_support` switches snippet vs plain-text insertions once, at render time.
@@ -80,4 +88,5 @@ Files: `features/completion.rs` — `classify` is the only place that walks the 
 
 ## 7. Changelog
 
+- **2026-06-12** — v0.2 review pass: REQ-CPL-07 — trigger characters (`"` `'` `/` `,`), explicit `textEdit` + `filterText` on every in-string item, `isIncomplete` for directory-level template results; `websocket_connect` noted in REQ-CPL-02; `Uri` type in data shapes.
 - **2026-06-12** — Extracted from F04 §3.3 (REQ-TLINK-04), F01 §5.7 (completion part of REQ-ROUTE-11), F05 §3.3 (REQ-TPL-04), F09 §3.3 (completion part of REQ-ENV-05) into a capability spec.
