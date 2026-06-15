@@ -134,9 +134,10 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
         for dep_ref in &fe.dep_refs {
             if dep_ref.name == dep.name
                 && let Some(func) = &dep_ref.containing_func
-                    && let Some(display) = handler_func_to_display.get(func.as_str()) {
-                        using_route_set.insert(display.clone());
-                    }
+                && let Some(display) = handler_func_to_display.get(func.as_str())
+            {
+                using_route_set.insert(display.clone());
+            }
         }
     }
 
@@ -160,9 +161,9 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
                 if alias_names.contains(&param.type_name)
                     && let Some(display) =
                         handler_func_to_display.get(param.containing_func.as_str())
-                    {
-                        using_route_set.insert(display.clone());
-                    }
+                {
+                    using_route_set.insert(display.clone());
+                }
             }
         }
     }

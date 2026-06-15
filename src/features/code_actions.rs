@@ -2132,12 +2132,13 @@ mod tests {
         let edit = action.edit.as_ref().unwrap();
         if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
             &edit.document_changes
-            && let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
-                assert!(
-                    te.new_text.starts_with(", "),
-                    "should prepend comma when params exist"
-                );
-            }
+            && let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0]
+        {
+            assert!(
+                te.new_text.starts_with(", "),
+                "should prepend comma when params exist"
+            );
+        }
     }
 
     #[test]
@@ -2396,12 +2397,13 @@ mod tests {
             document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)),
             ..
         }) = &action.edit
-            && let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
-                assert_eq!(
-                    te.new_text, "/{boook_id}",
-                    "segment text uses handler param name"
-                );
-            }
+            && let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0]
+        {
+            assert_eq!(
+                te.new_text, "/{boook_id}",
+                "segment text uses handler param name"
+            );
+        }
     }
 
     fn make_state_with_annotated_param(

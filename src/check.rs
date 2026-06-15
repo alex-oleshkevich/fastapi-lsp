@@ -299,12 +299,12 @@ pub async fn scan(state: &Arc<WorkspaceState>, root: &std::path::Path) {
             }
         } else if crate::server::is_env_filename(filename)
             && let Ok(src) = std::fs::read_to_string(path)
-                && let Some(uri) = crate::uri::path_to_uri(path)
-            {
-                let entries = crate::parsing::dotenv::parse(&src, &uri);
-                state.env_file_entries.insert(uri, entries);
-                state.bump_generation();
-            }
+            && let Some(uri) = crate::uri::path_to_uri(path)
+        {
+            let entries = crate::parsing::dotenv::parse(&src, &uri);
+            state.env_file_entries.insert(uri, entries);
+            state.bump_generation();
+        }
     }
 }
 

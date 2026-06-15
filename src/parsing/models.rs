@@ -58,22 +58,24 @@ fn extract_module_level_names(src: &[u8], root: Node<'_>, facts: &mut FileFacts)
             "expression_statement" => {
                 if let Some(inner) = child.child(0)
                     && inner.kind() == "assignment"
-                        && let Some(left) = inner.child_by_field_name("left")
-                            && left.kind() == "identifier" {
-                                let name = node_text(src, left);
-                                if !name.is_empty() && !name.starts_with('_') {
-                                    facts.imported_names.push(name.to_owned());
-                                }
-                            }
+                    && let Some(left) = inner.child_by_field_name("left")
+                    && left.kind() == "identifier"
+                {
+                    let name = node_text(src, left);
+                    if !name.is_empty() && !name.starts_with('_') {
+                        facts.imported_names.push(name.to_owned());
+                    }
+                }
             }
             "assignment" => {
                 if let Some(left) = child.child_by_field_name("left")
-                    && left.kind() == "identifier" {
-                        let name = node_text(src, left);
-                        if !name.is_empty() && !name.starts_with('_') {
-                            facts.imported_names.push(name.to_owned());
-                        }
+                    && left.kind() == "identifier"
+                {
+                    let name = node_text(src, left);
+                    if !name.is_empty() && !name.starts_with('_') {
+                        facts.imported_names.push(name.to_owned());
                     }
+                }
             }
             "function_definition" | "decorated_definition" => {
                 // `def foo():` or `@decorator\ndef foo():`

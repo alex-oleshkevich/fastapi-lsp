@@ -1103,15 +1103,16 @@ fn match_prefix(
             records.first().and_then(|rec| {
                 if &rec.method == method
                     && let ResolvedPath::Resolved(ref path) = rec.resolved_path
-                        && path.starts_with(prefix) {
-                            if let Some(expected_depth) = path_depth {
-                                let route_depth = path.trim_end_matches('/').split('/').count();
-                                if route_depth != expected_depth {
-                                    return None;
-                                }
-                            }
-                            return Some(id.clone());
+                    && path.starts_with(prefix)
+                {
+                    if let Some(expected_depth) = path_depth {
+                        let route_depth = path.trim_end_matches('/').split('/').count();
+                        if route_depth != expected_depth {
+                            return None;
                         }
+                    }
+                    return Some(id.clone());
+                }
                 None
             })
         })

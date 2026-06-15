@@ -38,10 +38,11 @@ fn collect_client_bindings(src: &[u8], node: Node<'_>, names: &mut HashSet<Strin
         if let (Some(lhs), Some(rhs)) = (
             node.child_by_field_name("left"),
             node.child_by_field_name("right"),
-        )
-            && lhs.kind() == "identifier" && is_test_client_ctor(src, rhs) {
-                names.insert(node_text(src, lhs).to_owned());
-            }
+        ) && lhs.kind() == "identifier"
+            && is_test_client_ctor(src, rhs)
+        {
+            names.insert(node_text(src, lhs).to_owned());
+        }
     } else if node.kind() == "typed_parameter" {
         collect_typed_param_client(src, node, names);
     }
@@ -69,9 +70,10 @@ fn collect_typed_param_client(src: &[u8], node: Node<'_>, names: &mut HashSet<St
                 child
             };
             if is_client_type_node(src, inner)
-                && let Some(name) = param_name {
-                    names.insert(name.to_owned());
-                }
+                && let Some(name) = param_name
+            {
+                names.insert(name.to_owned());
+            }
             break;
         }
     }

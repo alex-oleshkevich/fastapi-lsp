@@ -422,9 +422,10 @@ fn cross_route_diags(
                         }
                         // Resolve alias: `from X import router as projects_router` → "router"
                         if let Some(original) = facts.import_alias_originals.get(&inc.target)
-                            && all_known.contains(original) {
-                                return None;
-                            }
+                            && all_known.contains(original)
+                        {
+                            return None;
+                        }
                         Some(inc.target.clone())
                     })
                     .collect::<Vec<_>>()
