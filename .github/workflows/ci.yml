@@ -37,7 +37,7 @@ jobs:
 
       - name: E2E tests
         if: hashFiles('e2e/**/*.py') != ''
-        run: uv run pytest e2e/ -v
+        run: uv run --group dev pytest e2e/ -v
 
   check-self:
     # dogfood: run our own linter over the e2e fixtures once `check` exists

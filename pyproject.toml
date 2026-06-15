@@ -25,3 +25,11 @@ binaries = ["fastapi-lsp"]
 asyncio_mode = "auto"
 testpaths = ["e2e"]
 norecursedirs = ["e2e/fixtures"]
+
+[dependency-groups]
+dev = [
+    "lsprotocol>=2023.0.1",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-lsp>=0.4",
+]
