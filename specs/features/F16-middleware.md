@@ -77,7 +77,7 @@ You type `app.add_middleware(CORSMiddleware, ` — completion offers the seven C
 
 ## 6. Open Questions & Decisions
 
-- **OQ-MW-1** — Warn on a kwarg not in the known signature (`mw/unknown-kwarg`)? Deferred: the table being stale would mint false positives; revisit once the table has a doc-sync check.
+- ~~**OQ-MW-1**~~ — **Decision:** Won't-do. Pyright/ty already catches unknown kwargs on typed middleware classes. A stale built-in table would produce false positives; not worth the maintenance cost.
 
 ## Data Shapes & Code Map
 

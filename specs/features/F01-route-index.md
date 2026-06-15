@@ -75,6 +75,10 @@ Multiple includes of one router (mounted twice) yield one record per mount insta
 
 `def create_app():` is the default shape for settings-dependent wiring, so extraction can't stop at module level. `AppDecl`, `IncludeCall`, and router facts are extracted at any nesting depth. A function-local app or router participates in chain resolution like any other object, scoped to that function's body — two factories that each define their own `app` never cross-link.
 
+**REQ-ROUTE-13 — Class-attribute routers are tracked.**
+
+An `APIRouter` assigned to an instance attribute (`self.router = APIRouter()`) is extracted from the assignment site inside `__init__` or any other method. The attribute access form `self.router` in decorator calls and `include_router` targets is resolved through the class's assignments. Two classes that each define `self.router` never cross-link — resolution is scoped to the class body. Attribute routers that cannot be statically resolved (computed names, `setattr`, conditional branches) are stored as `Unresolved` per P4.
+
 ### 5.3 Route names and `url_for` recognition
 
 `url_for` is reverse routing — a string naming a route instead of a path. The index makes those names and call sites first-class.
@@ -115,13 +119,13 @@ def create_app(settings: Settings) -> FastAPI:
 - Two methods on one handler (`@app.get` + `@app.head` stacked) → two route records, one handler location.
 - `app.include_router(router)` with no prefix → chain link with empty prefix; resolution proceeds.
 - Decorator on a lambda or non-`def` → fact dropped (no handler to anchor to).
-- `APIRouter()` assigned to an attribute (`self.router`) → out of scope for v1; recorded as **OQ-ROUTE-1**.
+- `APIRouter()` assigned to an attribute (`self.router`) → tracked by REQ-ROUTE-13.
 
 ## 8. Open Questions & Decisions
 
-- **OQ-ROUTE-1** — Class-attribute routers (`self.router = APIRouter()`); revisit if real projects hit it.
+- ~~**OQ-ROUTE-1**~~ — **Decision:** Implement in v1 (see REQ-ROUTE-13).
 - ~~OQ-ROUTE-2~~ — moved to [F12](F12-symbols.md) as OQ-SYM-1.
-- **OQ-ROUTE-3** — Security-scheme URL literals: `OAuth2PasswordBearer(tokenUrl="token")` and `authorizationUrl=` name routes as strings, so goto, completion, and a validity diagnostic against the route index are all plausible. Note the relative-path semantics — `tokenUrl="token"` resolves against the app root at runtime, so a checker must honor that before comparing.
+- ~~**OQ-ROUTE-3**~~ — **Decision:** Implement goto + completion + validity diagnostic for `tokenUrl`/`authorizationUrl` string literals. Note relative-path semantics: `tokenUrl="token"` resolves against the app root at runtime, so the checker must normalize before comparing against the route index. Implementation tracked as a v1 requirement in [F13](F13-navigation.md), [F11](F11-completion.md), and [F02](F02-diagnostics.md).
 
 ## Data Shapes & Code Map
 

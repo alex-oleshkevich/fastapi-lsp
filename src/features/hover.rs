@@ -381,7 +381,12 @@ pub fn env_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
         .find(|s| position_in_range(pos, s.range.start, s.range.end))?;
 
     let key = &site.key;
-    let md = env_entry_card(key, linked.env_index.get(key));
+    let show_process = state
+        .config
+        .try_read()
+        .map(|c| c.process_env_show_values)
+        .unwrap_or(false);
+    let md = env_entry_card(key, linked.env_index.get(key), show_process);
     Some(make_hover(md))
 }
 
@@ -389,12 +394,17 @@ pub fn settings_field_hover(state: &WorkspaceState, uri: &Uri, pos: Position) ->
     let facts = state.file_facts.get(uri)?;
     let linked = state.linked.load();
 
+    let show_process = state
+        .config
+        .try_read()
+        .map(|c| c.process_env_show_values)
+        .unwrap_or(false);
     // Find a settings field whose range contains the position
     for cls in &facts.settings_classes {
         for field in &cls.fields {
             if position_in_range(pos, field.range.start, field.range.end) {
                 let key = field.env_key.as_deref().unwrap_or(&field.field_name);
-                let md = env_entry_card(key, linked.env_index.get(key));
+                let md = env_entry_card(key, linked.env_index.get(key), show_process);
                 return Some(make_hover(md));
             }
         }
@@ -402,11 +412,11 @@ pub fn settings_field_hover(state: &WorkspaceState, uri: &Uri, pos: Position) ->
     None
 }
 
-fn env_entry_card(key: &str, entry: Option<&EnvEntry>) -> String {
+fn env_entry_card(key: &str, entry: Option<&EnvEntry>, show_process_values: bool) -> String {
     let value_str = match entry {
         None => "[not in workspace env files]".to_owned(),
         Some(e) => {
-            if is_secret_key(key) {
+            if is_secret_key(key) || (e.from_process_env && !show_process_values) {
                 "••••••".to_owned()
             } else {
                 format!("`{}`", e.value)
@@ -451,8 +461,8 @@ mod tests {
 
     use crate::config::ResolvedConfig;
     use crate::state::{
-        DepDef, FileFacts, Linked, Location as StateLocation, Method, NodeId, ResolvedPath,
-        RouteId, RouteRecord,
+        DepDef, EnvEntry, FileFacts, Linked, Location as StateLocation, Method, NodeId,
+        ResolvedPath, RouteId, RouteRecord,
     };
 
     use super::dep_hover;
@@ -843,6 +853,68 @@ mod tests {
         assert!(
             md.contains("`contracts.upload` (route)"),
             "should display the route name kwarg, not the function name; got: {md}"
+        );
+    }
+
+    // ── env_entry_card masking ────────────────────────────────────────────────
+
+    fn process_entry(value: &str) -> EnvEntry {
+        EnvEntry {
+            value: value.to_owned(),
+            locations: vec![],
+            from_process_env: true,
+        }
+    }
+
+    fn file_entry(value: &str) -> EnvEntry {
+        EnvEntry {
+            value: value.to_owned(),
+            locations: vec![],
+            from_process_env: false,
+        }
+    }
+
+    #[test]
+    fn process_env_value_masked_when_show_false() {
+        let e = process_entry("secret123");
+        let md = super::env_entry_card("MY_VAR", Some(&e), false);
+        assert!(
+            md.contains("••••••"),
+            "process-env value should be masked when show=false"
+        );
+        assert!(!md.contains("secret123"));
+    }
+
+    #[test]
+    fn process_env_value_shown_when_show_true() {
+        let e = process_entry("secret123");
+        let md = super::env_entry_card("MY_VAR", Some(&e), true);
+        assert!(
+            md.contains("secret123"),
+            "process-env value should be shown when show=true"
+        );
+        assert!(!md.contains("••••••"));
+    }
+
+    #[test]
+    fn file_env_value_not_affected_by_show_flag() {
+        let e = file_entry("hello");
+        let md_false = super::env_entry_card("MY_VAR", Some(&e), false);
+        let md_true = super::env_entry_card("MY_VAR", Some(&e), true);
+        assert!(
+            md_false.contains("hello"),
+            "file-entry should always show value"
+        );
+        assert!(md_true.contains("hello"));
+    }
+
+    #[test]
+    fn secret_key_always_masked_regardless_of_show_flag() {
+        let e = process_entry("topsecret");
+        let md = super::env_entry_card("DATABASE_PASSWORD", Some(&e), true);
+        assert!(
+            md.contains("••••••"),
+            "secret key must be masked even when show=true"
         );
     }
 

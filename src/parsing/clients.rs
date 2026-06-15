@@ -2,8 +2,16 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use super::unquote;
-use crate::state::{ClientCall, FileFacts, Method, range_from_node};
+use crate::state::{ClientCall, FStringSegment, FileFacts, Method, range_from_node};
 use tower_lsp_server::ls_types::{Position, Range};
+
+type PathResult = (
+    String,
+    Range,
+    bool,
+    Option<usize>,
+    Option<Vec<FStringSegment>>,
+);
 
 pub fn extract(
     src: &[u8],
@@ -172,7 +180,8 @@ fn extract_http_call(
     let method = verb_to_method(verb)?;
 
     let args = node.child_by_field_name("arguments")?;
-    let (path, path_range, is_prefix, path_depth) = first_arg_path(src, args, enc)?;
+    let (path, path_range, is_prefix, path_depth, fstring_segments) =
+        first_arg_path(src, args, enc)?;
 
     Some(ClientCall {
         fixture_name: obj_name.to_owned(),
@@ -180,6 +189,7 @@ fn extract_http_call(
         path,
         is_prefix,
         path_depth,
+        fstring_segments,
         range: range_from_node(node, src, enc),
         path_range,
     })
@@ -215,22 +225,24 @@ fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
 /// - `"a" + "b"`: concatenated exact path, `is_prefix=false`.
 /// - `"a" + variable`: prefix = "a", `is_prefix=true`.
 ///
-/// Returns `(path, range, is_prefix, path_depth)`.
-/// `path_depth` is the total segment count when `is_prefix` is true and we can infer it from
-/// all static parts of the template (f-string, .format, %). `None` for exact paths or `+`.
-fn first_arg_path(
-    src: &[u8],
-    args: Node<'_>,
-    enc: crate::offset::Encoding,
-) -> Option<(String, Range, bool, Option<usize>)> {
+/// Returns `(path, range, is_prefix, path_depth, fstring_segments)`.
+/// `path_depth` is the total segment count when `is_prefix` is true.
+/// `fstring_segments` is populated for f-strings to enable segment-by-segment matching.
+fn first_arg_path(src: &[u8], args: Node<'_>, enc: crate::offset::Encoding) -> Option<PathResult> {
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
         match child.kind() {
             "(" | ")" | "," => continue,
             "keyword_argument" | "dictionary_splat_argument" | "list_splat_argument" => break,
             "string" => return extract_path_from_string(src, child, enc),
-            "call" => return extract_path_from_format_call(src, child, enc),
-            "binary_operator" => return extract_path_from_binary_op(src, child, enc),
+            "call" => {
+                let r = extract_path_from_format_call(src, child, enc)?;
+                return Some((r.0, r.1, r.2, r.3, None));
+            }
+            "binary_operator" => {
+                let r = extract_path_from_binary_op(src, child, enc)?;
+                return Some((r.0, r.1, r.2, r.3, None));
+            }
             _ => continue,
         }
     }
@@ -241,7 +253,7 @@ fn extract_path_from_string(
     src: &[u8],
     node: Node<'_>,
     enc: crate::offset::Encoding,
-) -> Option<(String, Range, bool, Option<usize>)> {
+) -> Option<PathResult> {
     // Detect f-string by presence of an `interpolation` child node.
     let has_interpolation = {
         let mut c = node.walk();
@@ -253,17 +265,40 @@ fn extract_path_from_string(
             return None;
         }
         let depth = count_all_static_slashes_in_fstring(src, node) + 1;
+        let segments = extract_fstring_segments(src, node);
         // path_range covers only the static prefix before the first interpolation.
         // This prevents goto/hover on interpolation expressions (e.g. `{uuid.uuid4()}`)
         // from hijacking normal goto-definition.
         let prefix_range = fstring_prefix_range(src, node, enc);
-        Some((prefix, prefix_range, true, Some(depth)))
+        Some((prefix, prefix_range, true, Some(depth), Some(segments)))
     } else {
         let raw = node_text(src, node);
         let text = unquote(raw);
         let content_range = string_content_range(node, raw, src, enc);
-        Some((text, content_range, false, None))
+        Some((text, content_range, false, None, None))
     }
+}
+
+/// Extract ordered segments from an f-string node for segment-by-segment trie matching.
+/// Alternates between `string_content` (Literal) and `interpolation` (Wildcard) children.
+fn extract_fstring_segments(src: &[u8], node: Node<'_>) -> Vec<FStringSegment> {
+    let mut segments = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "string_content" => {
+                let text = node_text(src, child).to_owned();
+                if !text.is_empty() {
+                    segments.push(FStringSegment::Literal(text));
+                }
+            }
+            "interpolation" => {
+                segments.push(FStringSegment::Wildcard);
+            }
+            _ => {}
+        }
+    }
+    segments
 }
 
 /// Collect string_content text up to the first `interpolation` child.
@@ -850,6 +885,37 @@ other.post('/b')
             Some(6),
             "depth must count slashes across all static content (5 slashes → 6 segments)"
         );
+    }
+
+    #[test]
+    fn fstring_two_wildcards_records_segments() {
+        // f"/api/books/{book_id}/authors/{author_id}"
+        let src = "client.get(f'/api/books/{book_id}/authors/{author_id}')";
+        let facts = extract_test(src, &["client"]);
+        assert_eq!(facts.client_calls.len(), 1);
+        let call = &facts.client_calls[0];
+        assert!(call.is_prefix);
+        let segs = call
+            .fstring_segments
+            .as_ref()
+            .expect("fstring_segments must be set for f-strings");
+        assert_eq!(
+            segs,
+            &[
+                crate::state::FStringSegment::Literal("/api/books/".to_owned()),
+                crate::state::FStringSegment::Wildcard,
+                crate::state::FStringSegment::Literal("/authors/".to_owned()),
+                crate::state::FStringSegment::Wildcard,
+            ]
+        );
+    }
+
+    #[test]
+    fn plain_string_has_no_fstring_segments() {
+        let src = "client.get('/api/books/1')";
+        let facts = extract_test(src, &["client"]);
+        assert_eq!(facts.client_calls.len(), 1);
+        assert!(facts.client_calls[0].fstring_segments.is_none());
     }
 
     #[test]

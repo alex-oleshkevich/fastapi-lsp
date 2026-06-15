@@ -715,6 +715,7 @@ pub(crate) fn extract_all_facts(
     crate::parsing::url_for::extract(src, tree, &mut facts, enc);
     crate::parsing::env::extract(src, tree, &mut facts, enc);
     crate::parsing::annotated::extract(src, tree, &mut facts, enc);
+    crate::parsing::security::extract(src, tree, &mut facts, enc);
     facts
 }
 

@@ -18,7 +18,6 @@ One binary, two modes. `lsp` is the long-running server an editor spawns; `check
 
 ## 2. Non-Goals / Out of Scope
 
-- Auto-fixing from the CLI (`check --fix`) — the code-action machinery assumes an editor applying `WorkspaceEdit`s; recorded as **OQ-CLI-1**, not v1.
 - Watch mode for `check` — run it again; the editor is the watch mode.
 
 ## 3. Detailed Specification
@@ -58,11 +57,41 @@ app/routers/books.py:14:13 warning[route/duplicate] duplicate of GET /api/books/
 
 `json` emits one JSON object per finding (file, range, severity, code, message, related), one per line — stable shape, scriptable.
 
-### 3.3 Shared engine
+### 3.3 `fastapi-lsp check --fix`
 
-**REQ-CLI-04 — `check` and the LSP server share one diagnostics implementation.**
+**REQ-CLI-05 — `--fix` applies deterministic quick fixes in-place.**
 
-`check` constructs the same `WorkspaceState`, runs the same pass 1/pass 2, and calls the same pure diagnostic functions. No check may exist in one mode and not the other; the e2e suite asserts the parity on the broken fixtures ([E17](../foundations/E17-testing.md)).
+```
+fastapi-lsp check PATH --fix [--only CODES] [--ignore CODES]
+```
+
+Only the subset of quick fixes that are deterministic (single right answer, no ambiguity) are applied: rename a mismatched path param, add a missing `/{param}` segment, rewrite `Depends(fn())` to `Depends(fn)`. Fixes that require a choice (e.g. which param name to keep when two conflict) are not applied. A dry run of the diagnostics pipeline runs first; only fixable findings trigger edits.
+
+Exit codes match `check` (`0` = clean after fixes, `1` = unfixable warnings remain, `2` = usage error). The fix logic lives in a shared layer (`src/fixes.rs`) that produces plain file edits — no `WorkspaceEdit` envelope — so the same code can be called from the LSP code-action path too. The `--format json` flag in `--fix` mode emits a per-finding object with an `applied: bool` field.
+
+### 3.4 `fastapi-lsp routes`
+
+**REQ-CLI-06 — `routes` prints the resolved route table.**
+
+```
+fastapi-lsp routes [PATH] [--format text|json]
+```
+
+For each route in the index, one row: HTTP method, fully-resolved path, handler function name, and source location (`file:line`). Unresolved routes show `⟨unresolved⟩` as the path prefix. `text` (default) is a fixed-width table; `json` emits one object per route per line.
+
+```
+GET     /api/books               list_books       app/routers/books.py:8
+GET     /api/books/{book_id}     get_book         app/routers/books.py:14
+POST    /api/books               create_book      app/routers/books.py:22
+```
+
+Exit `0` always (it's a query, not a lint). Error `2` when `PATH` resolves no workspace.
+
+### 3.5 Shared engine
+
+**REQ-CLI-04 — `check`, `check --fix`, and the LSP server share one diagnostics implementation.**
+
+`check` constructs the same `WorkspaceState`, runs the same pass 1/pass 2, and calls the same pure diagnostic functions. No check may exist in one mode and not the other; the e2e suite asserts the parity on the broken fixtures ([E17](../foundations/E17-testing.md)). Fix logic lives in `src/fixes.rs` — plain `(PathBuf, TextEdit)` pairs — shared between `check --fix` and the LSP code-action path.
 
 ## 4. Examples & Use Cases
 
@@ -76,20 +105,21 @@ CI runs `fastapi-lsp check . --ignore env/undefined-key` — the env hints are n
 
 ## 6. Open Questions & Decisions
 
-- **OQ-CLI-1** — `check --fix` applying the deterministic quick fixes. Wants the action machinery decoupled from `WorkspaceEdit` first.
-- **OQ-CLI-2** — `fastapi-lsp routes`: print the resolved route table — method, resolved path, handler, source location. The `flask routes` / django-extensions `show_urls` equivalent, which FastAPI itself lacks. Near-zero marginal cost: the route index and the CLI plumbing both already exist; the subcommand is a formatter over them. Recorded as a roadmap stretch goal.
+- ~~**OQ-CLI-1**~~ — **Decision:** Implement `check --fix` (REQ-CLI-05, shared engine REQ-CLI-04). Fix logic extracted to `src/fixes.rs` shared with the LSP code-action path.
+- ~~**OQ-CLI-2**~~ — **Decision:** Implement `fastapi-lsp routes` (REQ-CLI-06). Near-zero marginal cost over the existing route index.
 
 ## Data Shapes & Code Map
 
 ```rust
 // src/main.rs — clap derive
-pub enum Cli { Lsp(LspArgs), Check(CheckArgs) }
-pub struct LspArgs   { pub stdio: bool, pub tcp: bool, pub address: IpAddr, pub port: u16 }
-pub struct CheckArgs { pub path: PathBuf, pub only: Vec<DiagCode>, pub ignore: Vec<DiagCode>,
-                       pub format: OutputFormat }
+pub enum Cli { Lsp(LspArgs), Check(CheckArgs), Routes(RoutesArgs) }
+pub struct LspArgs    { pub stdio: bool, pub tcp: bool, pub address: IpAddr, pub port: u16 }
+pub struct CheckArgs  { pub path: PathBuf, pub only: Vec<DiagCode>, pub ignore: Vec<DiagCode>,
+                        pub format: OutputFormat, pub fix: bool }
+pub struct RoutesArgs { pub path: Option<PathBuf>, pub format: OutputFormat }
 pub enum OutputFormat { Text, Json }
 
-// src/check.rs
+// src/check.rs — also src/fixes.rs (shared fix logic, called from check --fix and LSP code actions)
 pub fn run_check(args: CheckArgs) -> ExitCode;          // 0 clean · 1 findings ≥ Warning · 2 usage/config
 pub enum CheckError { BadCode(String), NoWorkspace(PathBuf), Io(std::io::Error) }   // all map to exit 2
 ```

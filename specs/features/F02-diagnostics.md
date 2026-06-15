@@ -61,6 +61,8 @@ Whenever a check involves a second location, the diagnostic's `relatedInformatio
 | `url/param-mismatch` | Warning | A `url_for` call's keyword arguments don't exactly cover the named route's path params — missing or extra names. |
 | `tpl/missing-template` | Warning | A template reference matches no file under any template root ([F05](F05-templates.md)); suppressed when no roots exist (P4), includes the nearest-name suggestion at edit distance ≤ 2. |
 | `env/undefined-key` | Information | An env lookup without a default names a key defined in no workspace env file (detail in [F09 §3.3](F09-env-settings.md)). Suppressed for a built-in allowlist of well-known OS/CI vars (`HOME`, `PATH`, `PORT`, …), extensible via `env.ignore` ([E15](../foundations/E15-app-config.md)). |
+| `test/unknown-path` | Warning | A test-client call's path matches no route in the index. **Opt-in** — disabled by default via `[features] test_unknown_paths = false` ([E15](../foundations/E15-app-config.md)) because 404-tests are legitimate. When enabled, fires on literal and unambiguously matched f-string paths ([F04 REQ-TLINK-04](F04-test-linking.md)); ambiguous f-string calls never fire. Message names the unmatched path and suggests nearest alternatives (edit-distance ≤ 1). |
+| `oauth2/unknown-token-url` | Warning | A `tokenUrl` or `authorizationUrl` string in an OAuth2 security scheme call (`OAuth2PasswordBearer`, `OAuth2AuthorizationCodeBearer`, etc.) references a path that matches no route in the index. The URL is normalized before matching (relative paths get a leading `/`). Suppressed when the route set is incomplete (same gate as `url/unknown-name`). |
 
 ### 3.3 The checks in detail
 
@@ -93,6 +95,10 @@ The name index maps one name to many route records legitimately: stacked method 
 **REQ-DIAG-08 — `route/router-not-included` fires on orphan routers, with escape hatches.**
 
 The check anchors on the `APIRouter(...)` assignment when, after a complete scan, no include or mount edge (alias-aware, [E07 REQ-IDX-06](../foundations/E07-data-model.md)) resolves to it. Two suppressions keep it honest: the router's name appearing in an `__all__` literal (a deliberate library export), and any `Unresolved` include target existing in the workspace (the orphan might be *that* target — absence isn't proven). This diagnostic is the *explanation* for the router's routes showing `⟨unresolved⟩` paths; one squiggle at the cause beats one per route.
+
+**REQ-DIAG-21 — `oauth2/unknown-token-url` checks security-scheme URL strings against the route index.**
+
+The check fires on `tokenUrl` and `authorizationUrl` kwargs inside recognized OAuth2 class calls when the normalized path matches no resolved route. Normalization mirrors FastAPI's runtime: relative URLs (`"token"`) become absolute (`"/token"`) by prepending `/`. The check is gated on route-set completeness — suppressed while any `Unresolved` route exists in the workspace (same gate as `url/unknown-name`, REQ-DIAG-06) — so a scan in progress or a partially-known codebase never produces false positives. Squiggle covers the string literal node (including quotes).
 
 **REQ-DIAG-10 — `di/depends-called` requires proof the callee is a dependency, not a factory.**
 
@@ -184,7 +190,7 @@ def create_book(book: BookCreate): ...
 
 ## 6. Open Questions & Decisions
 
-- **OQ-DIAG-1** — Severity of `route/shadowed`: Warning vs Information. Start Warning; downgrade if dogfooding shows intentional shadowing patterns.
+- ~~**OQ-DIAG-1**~~ — **Decision:** Warning. Shadowed routes are almost always bugs. Downgrade to Information only if dogfooding surfaces intentional shadowing patterns.
 - **Decision (resolves OQ-DIAG-2)** — Code actions are specified in [F08-code-actions](F08-code-actions.md); quick fixes for `di/depends-called`, `route/param-missing-arg`, and `route/arg-missing-param` ship with M2 alongside their checks.
 
 ## Data Shapes & Code Map

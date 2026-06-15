@@ -51,9 +51,13 @@ Inside a recognized env lookup string ([F09](F09-env-settings.md) REQ-ENV-02), t
 
 At a recognized middleware registration site ([F16](F16-middleware.md)), after the class argument, the resolved signature's kwargs complete as `allow_origins=` with the parameter's annotation and default as the detail. Kwargs already present in the call are filtered out. This is the spec's only non-string completion surface; its justification lives in [F16 §1](F16-middleware.md).
 
+**REQ-CPL-07 — OAuth2 security-scheme URL strings.**
+
+Inside the `tokenUrl` or `authorizationUrl` string of a recognized OAuth2 class call (`OAuth2PasswordBearer`, `OAuth2AuthorizationCodeBearer`, etc.), every resolved route path from the route index is offered as a completion item. The replacement range covers the string content (excluding quotes). Inserts as plain text (no snippet placeholders — these are URL strings, not path templates for client calls).
+
 ### 3.3 Mechanics
 
-**REQ-CPL-07 — Trigger characters and explicit edit ranges.**
+**REQ-CPL-08 — Trigger characters and explicit edit ranges.**
 
 Editors auto-invoke completion on identifier characters or on characters the server declares — and every surface above lives inside a string literal, where no identifier character ever fires. The server therefore advertises `triggerCharacters: ["\"", "'", "/", ","]`: the quotes open each surface as it's typed, `/` re-triggers path and template completion one segment at a time, and `,` fires the kwarg surface (REQ-CPL-06, also reachable by manual invoke). Without these, none of the moments in §4 ever happens.
 

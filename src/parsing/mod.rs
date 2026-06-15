@@ -7,6 +7,7 @@ pub mod middleware;
 pub mod models;
 pub mod python;
 pub mod routes;
+pub mod security;
 pub mod templates;
 pub mod url_for;
 

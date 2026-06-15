@@ -223,6 +223,40 @@ pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<
         }
     }
 
+    // oauth2/unknown-token-url (REQ-DIAG-21): tokenUrl/authorizationUrl references a missing route.
+    if !has_unresolved_routes {
+        for site in &facts.security_scheme_sites {
+            let matched = linked
+                .route_index
+                .values()
+                .flat_map(|records| records.iter())
+                .any(|r| matches!(&r.resolved_path, ResolvedPath::Resolved(p) if p == &site.path));
+            if !matched {
+                diags.push(unknown_token_url_diag(&site.path, site.range));
+            }
+        }
+    }
+
+    // test/unknown-path (REQ-TLINK-04): opt-in, disabled by default.
+    // Only fires when routes are fully resolved (same gate as url/unknown-name).
+    let test_unknown_paths = state
+        .config
+        .try_read()
+        .map(|c| c.features.test_unknown_paths)
+        .unwrap_or(false);
+    if test_unknown_paths && !has_unresolved_routes {
+        for call in &facts.client_calls {
+            let matched = linked
+                .call_site_index
+                .get(&(uri.clone(), call.range))
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            if !matched {
+                diags.push(test_unknown_path_diag(&call.path, call.range));
+            }
+        }
+    }
+
     diags
 }
 
@@ -1131,6 +1165,30 @@ pub fn settings_missing_env_diag(key: &str, range: Range) -> Diagnostic {
         )),
         source: Some("fastapi-lsp".to_owned()),
         message: format!("Required env key undeclared: {key}."),
+        ..Default::default()
+    }
+}
+
+pub fn unknown_token_url_diag(path: &str, range: Range) -> Diagnostic {
+    Diagnostic {
+        range,
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(NumberOrString::String(
+            "oauth2/unknown-token-url".to_owned(),
+        )),
+        message: format!("no route matches OAuth2 URL `{path}`"),
+        source: Some("fastapi-lsp".to_owned()),
+        ..Default::default()
+    }
+}
+
+pub fn test_unknown_path_diag(path: &str, range: Range) -> Diagnostic {
+    Diagnostic {
+        range,
+        severity: Some(DiagnosticSeverity::WARNING),
+        code: Some(NumberOrString::String("test/unknown-path".to_owned())),
+        message: format!("no route matches `{path}`"),
+        source: Some("fastapi-lsp".to_owned()),
         ..Default::default()
     }
 }
@@ -3304,5 +3362,24 @@ mod tests {
             "param-missing-arg must not fire when path param is consumed via type alias dep; got {:?}",
             missing,
         );
+    }
+
+    // ── test/unknown-path ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_unknown_path_diag_properties() {
+        use tower_lsp_server::ls_types::Position;
+        let range = Range {
+            start: Position::new(5, 10),
+            end: Position::new(5, 30),
+        };
+        let d = test_unknown_path_diag("/api/missing", range);
+        assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("test/unknown-path".to_owned()))
+        );
+        assert!(d.message.contains("/api/missing"));
+        assert_eq!(d.source, Some("fastapi-lsp".to_owned()));
     }
 }

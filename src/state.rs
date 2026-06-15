@@ -53,6 +53,8 @@ pub struct FileFacts {
     /// Handler params with plain identifier types (not `Depends(...)` or `Annotated[...,Depends]`).
     /// Paired with `dep_type_aliases` to detect path params consumed by type-alias deps.
     pub plain_typed_params: Vec<PlainTypedParam>,
+    /// OAuth2 security scheme sites — `OAuth2PasswordBearer(tokenUrl=...)` etc.
+    pub security_scheme_sites: Vec<SecuritySchemeSite>,
 }
 
 impl FileFacts {
@@ -83,8 +85,21 @@ impl FileFacts {
             dep_type_aliases: std::collections::HashMap::new(),
             dep_type_alias_ranges: std::collections::HashMap::new(),
             plain_typed_params: vec![],
+            security_scheme_sites: vec![],
         }
     }
+}
+
+/// A recognized OAuth2 security scheme site — e.g. `OAuth2PasswordBearer(tokenUrl="token")`.
+/// The `path` is normalized to start with `/` (FastAPI runtime behaviour).
+#[derive(Debug, Clone)]
+pub struct SecuritySchemeSite {
+    /// Normalized URL path with leading `/`.
+    pub path: String,
+    /// Range of the string literal node (including quotes); used for goto hit-testing.
+    pub range: Range,
+    /// Range of string content (excluding quotes); used as completion replace range.
+    pub replace_range: Range,
 }
 
 /// A function parameter with a plain (non-Annotated, non-Depends) type annotation.
@@ -265,6 +280,15 @@ pub struct ModelFact {
     pub is_settings: bool,
 }
 
+/// A segment in a parsed f-string path. Used for precise best-effort matching (REQ-TLINK-03).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FStringSegment {
+    /// A literal path component such as `/api/books/` or `/authors/`.
+    Literal(String),
+    /// An interpolated expression `{...}` — matches any single `{param}` trie segment.
+    Wildcard,
+}
+
 #[derive(Debug, Clone)]
 pub struct ClientCall {
     pub fixture_name: String,
@@ -277,6 +301,9 @@ pub struct ClientCall {
     /// Computed by counting slashes across all static content in the path template + 1.
     /// Used by `match_prefix` to filter candidates with the wrong depth.
     pub path_depth: Option<usize>,
+    /// Parsed segments of an f-string path, for precise segment-by-segment matching (REQ-TLINK-03).
+    /// `None` for non-f-string paths. When present, `linking.rs` uses this instead of `is_prefix`.
+    pub fstring_segments: Option<Vec<FStringSegment>>,
     /// Range of the entire call expression (used for goto + diagnostics).
     pub range: Range,
     /// Range of the path string content only (excluding quotes), for completion textEdit.

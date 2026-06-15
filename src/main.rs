@@ -2,6 +2,7 @@ mod check;
 mod cli;
 mod config;
 mod features;
+mod fixes;
 mod linking;
 mod offset;
 mod parsing;

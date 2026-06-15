@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tower_lsp_server::ls_types::DiagnosticSeverity;
+use tower_lsp_server::ls_types::{DiagnosticSeverity, Range};
 
 use crate::cli::{CheckArgs, OutputFormat};
 use crate::{config, linking, state::WorkspaceState};
@@ -63,6 +64,55 @@ pub async fn run(args: CheckArgs) -> i32 {
             Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
         )
     });
+
+    if args.fix {
+        let all_fixes = crate::fixes::collect_fixes(&state);
+
+        // Match fixes to the filtered diagnostic set
+        let applicable: Vec<&crate::fixes::FileFix> = all_fixes
+            .iter()
+            .filter(|fix| {
+                all_diags
+                    .iter()
+                    .any(|(uri, d)| uri == &fix.uri && d.range == fix.diag_range)
+            })
+            .collect();
+
+        // Group edits by file path
+        let mut edits_by_path: HashMap<PathBuf, Vec<(Range, String)>> = HashMap::new();
+        for fix in &applicable {
+            edits_by_path
+                .entry(fix.path.clone())
+                .or_default()
+                .push((fix.edit_range, fix.new_text.clone()));
+        }
+
+        // Apply edits to files in-place
+        for (path, edits) in &edits_by_path {
+            if let Err(e) = crate::fixes::apply_fixes_to_file(path, edits) {
+                eprintln!("warning: could not apply fix to {}: {}", path.display(), e);
+            }
+        }
+
+        // Build applied set: (uri_str, diag_range)
+        let applied: Vec<(String, Range)> = applicable
+            .iter()
+            .map(|fix| (fix.uri.clone(), fix.diag_range))
+            .collect();
+
+        match args.format {
+            OutputFormat::Json => print_json_with_applied(&all_diags, &applied),
+            OutputFormat::Text => print_text_with_applied(&all_diags, &applied),
+        }
+
+        let has_unfixed_warnings = all_diags.iter().any(|(uri, d)| {
+            matches!(
+                d.severity,
+                Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
+            ) && !applied.iter().any(|(u, r)| u == uri && *r == d.range)
+        });
+        return if has_unfixed_warnings { 1 } else { 0 };
+    }
 
     match args.format {
         OutputFormat::Json => print_json(&all_diags),
@@ -159,6 +209,174 @@ fn print_text(diags: &[(String, tower_lsp_server::ls_types::Diagnostic)]) {
         eprintln!("{}{}\x1b[0m", summary_color, summary);
     } else {
         eprintln!("{}", summary);
+    }
+}
+
+fn print_text_with_applied(
+    diags: &[(String, tower_lsp_server::ls_types::Diagnostic)],
+    applied: &[(String, Range)],
+) {
+    use std::io::IsTerminal;
+    let color = std::io::stdout().is_terminal();
+
+    let mut errors: u32 = 0;
+    let mut warnings: u32 = 0;
+    let mut fixed_count: u32 = 0;
+
+    for (uri, d) in diags {
+        let path = uri_to_display_path(uri);
+        let code = code_str(&d.code);
+        let is_fixed = applied.iter().any(|(u, r)| u == uri && *r == d.range);
+        match d.severity {
+            Some(DiagnosticSeverity::ERROR) => errors += 1,
+            Some(DiagnosticSeverity::WARNING) => warnings += 1,
+            _ => {}
+        }
+        if is_fixed {
+            fixed_count += 1;
+        }
+        if color {
+            let sev_color = severity_color(d.severity);
+            let fixed_marker = if is_fixed {
+                " \x1b[32m[fixed]\x1b[0m"
+            } else {
+                ""
+            };
+            println!(
+                "\x1b[1m{}\x1b[0m:{}:{}: {}{}\x1b[0m {}{}",
+                path,
+                d.range.start.line + 1,
+                d.range.start.character + 1,
+                sev_color,
+                code,
+                d.message,
+                fixed_marker,
+            );
+        } else {
+            let fixed_marker = if is_fixed { " [fixed]" } else { "" };
+            println!(
+                "{}:{}:{}: {} {}{}",
+                path,
+                d.range.start.line + 1,
+                d.range.start.character + 1,
+                code,
+                d.message,
+                fixed_marker,
+            );
+        }
+    }
+
+    let unfixed_errors = errors.saturating_sub(
+        applied
+            .iter()
+            .filter(|(u, r)| {
+                diags.iter().any(|(uri, d)| {
+                    uri == u
+                        && d.range == *r
+                        && matches!(d.severity, Some(DiagnosticSeverity::ERROR))
+                })
+            })
+            .count() as u32,
+    );
+    let unfixed_warnings = warnings.saturating_sub(
+        applied
+            .iter()
+            .filter(|(u, r)| {
+                diags.iter().any(|(uri, d)| {
+                    uri == u
+                        && d.range == *r
+                        && matches!(d.severity, Some(DiagnosticSeverity::WARNING))
+                })
+            })
+            .count() as u32,
+    );
+
+    let summary = if fixed_count == 0 && unfixed_errors == 0 && unfixed_warnings == 0 {
+        "All checks passed.".to_owned()
+    } else if fixed_count > 0 && unfixed_errors == 0 && unfixed_warnings == 0 {
+        format!(
+            "Applied {} fix{}. All checks passed.",
+            fixed_count,
+            if fixed_count == 1 { "" } else { "es" }
+        )
+    } else {
+        let mut parts = Vec::new();
+        if fixed_count > 0 {
+            parts.push(format!(
+                "Applied {} fix{}.",
+                fixed_count,
+                if fixed_count == 1 { "" } else { "es" }
+            ));
+        }
+        if unfixed_errors > 0 {
+            parts.push(format!(
+                "{} error{} remain{}.",
+                unfixed_errors,
+                if unfixed_errors == 1 { "" } else { "s" },
+                if unfixed_errors == 1 { "s" } else { "" },
+            ));
+        }
+        if unfixed_warnings > 0 {
+            parts.push(format!(
+                "{} warning{} remain{}.",
+                unfixed_warnings,
+                if unfixed_warnings == 1 { "" } else { "s" },
+                if unfixed_warnings == 1 { "s" } else { "" },
+            ));
+        }
+        parts.join(" ")
+    };
+
+    if color {
+        let summary_color = if unfixed_errors > 0 {
+            "\x1b[1;31m"
+        } else if unfixed_warnings > 0 {
+            "\x1b[1;33m"
+        } else {
+            "\x1b[1;32m"
+        };
+        eprintln!("{}{}\x1b[0m", summary_color, summary);
+    } else {
+        eprintln!("{}", summary);
+    }
+}
+
+fn print_json_with_applied(
+    diags: &[(String, tower_lsp_server::ls_types::Diagnostic)],
+    applied: &[(String, Range)],
+) {
+    for (uri, d) in diags {
+        let is_applied = applied.iter().any(|(u, r)| u == uri && *r == d.range);
+        let related: Vec<serde_json::Value> = d
+            .related_information
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "uri": r.location.uri.as_str(),
+                    "range": {
+                        "start": { "line": r.location.range.start.line, "character": r.location.range.start.character },
+                        "end": { "line": r.location.range.end.line, "character": r.location.range.end.character },
+                    },
+                    "message": r.message,
+                })
+            })
+            .collect();
+
+        let obj = serde_json::json!({
+            "file": uri,
+            "range": {
+                "start": { "line": d.range.start.line, "character": d.range.start.character },
+                "end": { "line": d.range.end.line, "character": d.range.end.character },
+            },
+            "severity": severity_str(d.severity),
+            "code": code_str(&d.code),
+            "message": d.message,
+            "related": related,
+            "applied": is_applied,
+        });
+        println!("{}", serde_json::to_string(&obj).unwrap_or_default());
     }
 }
 

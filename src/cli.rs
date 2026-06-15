@@ -40,6 +40,9 @@ pub struct CheckArgs {
     /// Skip these diagnostic codes (comma-separated); mutually exclusive with --only
     #[arg(long, value_delimiter = ',')]
     pub ignore: Vec<DiagCode>,
+    /// Apply deterministic quick fixes in-place
+    #[arg(long)]
+    pub fix: bool,
 }
 
 #[derive(Debug, Clone, ValueEnum, PartialEq, Eq)]
@@ -68,6 +71,8 @@ pub const KNOWN_CODES: &[&str] = &[
     "model/unknown-response-model",
     "env/undefined-key",
     "tpl/missing-template",
+    "test/unknown-path",
+    "oauth2/unknown-token-url",
 ];
 
 impl std::str::FromStr for DiagCode {

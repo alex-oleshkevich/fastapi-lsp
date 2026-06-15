@@ -42,6 +42,15 @@ pub fn completion(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Co
         return client_path_completions(state, &call.method, call.path_range);
     }
 
+    // OAuth2 tokenUrl/authorizationUrl completion (REQ-CPL-07): cursor inside the URL string.
+    if let Some(site) = facts
+        .security_scheme_sites
+        .iter()
+        .find(|s| position_in_range(pos, s.range.start, s.range.end))
+    {
+        return security_url_completions(state, site.replace_range);
+    }
+
     // Template path completion (REQ-CPL-04): cursor inside a recognised template string.
     // TemplateRef.range uses tree-sitter's exclusive end_position(); position_in_range uses <.
     if let Some(tpl) = facts
@@ -197,6 +206,51 @@ fn client_path_completions(
                 } else {
                     InsertTextFormat::PLAIN_TEXT
                 }),
+                ..Default::default()
+            })
+        })
+        .collect();
+
+    if items.is_empty() {
+        return None;
+    }
+
+    Some(CompletionResponse::List(CompletionList {
+        is_incomplete: false,
+        items,
+    }))
+}
+
+// ── OAuth2 tokenUrl / authorizationUrl completion (REQ-CPL-07) ───────────────
+
+fn security_url_completions(
+    state: &WorkspaceState,
+    replace_range: Range,
+) -> Option<CompletionResponse> {
+    let linked = state.linked.load();
+    let mut seen = std::collections::HashSet::new();
+
+    let items: Vec<CompletionItem> = linked
+        .route_index
+        .values()
+        .flat_map(|records| records.iter())
+        .filter_map(|r| {
+            let path = match &r.resolved_path {
+                ResolvedPath::Resolved(p) => p.clone(),
+                ResolvedPath::Unresolved => return None,
+            };
+            if !seen.insert(path.clone()) {
+                return None;
+            }
+            Some(CompletionItem {
+                label: path.clone(),
+                kind: Some(CompletionItemKind::REFERENCE),
+                detail: Some(format!("{} — {}", r.name, r.method)),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: path,
+                })),
+                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                 ..Default::default()
             })
         })
@@ -409,6 +463,7 @@ mod tests {
             path: String::new(),
             is_prefix: false,
             path_depth: None,
+            fstring_segments: None,
             range: Range::default(),
             path_range,
         });

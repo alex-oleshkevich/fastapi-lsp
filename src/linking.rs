@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tower_lsp_server::ls_types::Uri;
 
 use crate::state::{
-    ClientCallSite, DepGraph, EnvEntry, FileFacts, IncludeCall, Linked, Location, Method,
-    MiddlewareCall, MwInit, MwKwarg, MwSource, NodeId, PathTrie, PrefixValue, ResolvedPath,
+    ClientCallSite, DepGraph, EnvEntry, FStringSegment, FileFacts, IncludeCall, Linked, Location,
+    Method, MiddlewareCall, MwInit, MwKwarg, MwSource, NodeId, PathTrie, PrefixValue, ResolvedPath,
     RouteId, RouteRecord, RouterDecl, SettingsClassDecl, SettingsField, TrieNode, WorkspaceState,
 };
 
@@ -1033,7 +1033,11 @@ fn build_test_refs(
         let file_uri = entry.key();
 
         for call in &facts.client_calls {
-            let matched_ids = if call.is_prefix {
+            let matched_ids = if let Some(segments) = &call.fstring_segments {
+                // REQ-TLINK-03: segment-by-segment matching — link only when exactly one route matches.
+                let ids = match_fstring_segments(route_index, segments, &call.method);
+                if ids.len() == 1 { ids } else { vec![] }
+            } else if call.is_prefix {
                 match_prefix(route_index, &call.path, &call.method, call.path_depth)
             } else {
                 match_call(trie, route_index, &call.path, &call.method)
@@ -1114,6 +1118,62 @@ fn match_prefix(
                     return Some(id.clone());
                 }
                 None
+            })
+        })
+        .collect()
+}
+
+/// Match f-string paths against all routes using segment-by-segment comparison (REQ-TLINK-03).
+/// A `Literal` segment must match exactly; a `Wildcard` matches any single path segment that is
+/// NOT a `{name:path}` multi-segment param (which spans an unknown number of segments).
+/// Returns all route IDs whose resolved path satisfies the full pattern.
+fn match_fstring_segments(
+    route_index: &HashMap<RouteId, Vec<RouteRecord>>,
+    fstring_segments: &[FStringSegment],
+    method: &crate::state::Method,
+) -> Vec<RouteId> {
+    // Convert f-string segments into a flat list of pattern tokens by joining literals and
+    // splitting by `/`, then inserting wildcards in the appropriate positions.
+    // Sentinel that won't appear in URL paths:
+    const WC_SENTINEL: &str = "\x00";
+    let mut combined = String::new();
+    for seg in fstring_segments {
+        match seg {
+            FStringSegment::Literal(s) => combined.push_str(s),
+            FStringSegment::Wildcard => combined.push_str(WC_SENTINEL),
+        }
+    }
+    let raw: Vec<&str> = combined.split('/').collect();
+    let pattern: Vec<&str> = if raw.first().copied() == Some("") {
+        raw[1..].to_vec()
+    } else {
+        raw
+    };
+
+    route_index
+        .iter()
+        .filter_map(|(id, records)| {
+            records.first().and_then(|rec| {
+                if &rec.method != method {
+                    return None;
+                }
+                let ResolvedPath::Resolved(ref path) = rec.resolved_path else {
+                    return None;
+                };
+                let route_segs = path_segments(path);
+                if pattern.len() != route_segs.len() {
+                    return None;
+                }
+                let matches = pattern.iter().zip(route_segs.iter()).all(|(p, r)| {
+                    if *p == WC_SENTINEL {
+                        // Wildcard: matches any single segment that is NOT a {name:path} multi-segment param.
+                        !r.contains(":path")
+                    } else {
+                        // Literal segment: exact match (case-sensitive, as in HTTP paths).
+                        p == r
+                    }
+                });
+                if matches { Some(id.clone()) } else { None }
             })
         })
         .collect()
@@ -1604,6 +1664,41 @@ mod tests {
         RouteId(s.to_owned())
     }
 
+    fn make_route(
+        id: &str,
+        path: &str,
+        method: crate::state::Method,
+    ) -> (RouteId, Vec<RouteRecord>) {
+        let route_id = rid(id);
+        let record = RouteRecord {
+            id: route_id.clone(),
+            ordinal: 0,
+            name: id.to_owned(),
+            method,
+            resolved_path: ResolvedPath::Resolved(path.to_owned()),
+            decorator_path: path.to_owned(),
+            chain: vec![],
+            handler: Location {
+                uri: "file:///a.py".parse().unwrap(),
+                range: Default::default(),
+            },
+            path_params: vec![],
+            response_model: None,
+            response_model_range: None,
+            return_annotation: None,
+            dependencies: vec![],
+            middleware: vec![],
+            path_range: None,
+            path_quote_width: None,
+            handler_params: vec![],
+            handler_param_ranges: vec![],
+            params_insert_pos: None,
+            handler_has_splat_args: false,
+            handler_params_known: false,
+        };
+        (route_id, vec![record])
+    }
+
     #[test]
     fn trie_literal_path_match() {
         let mut root = TrieNode::default();
@@ -2040,5 +2135,79 @@ mod tests {
             resolved,
             vec![ResolvedPath::Resolved("/b/items".to_owned())]
         );
+    }
+
+    // ── match_fstring_segments ────────────────────────────────────────────────
+
+    fn flit(s: &str) -> FStringSegment {
+        FStringSegment::Literal(s.to_owned())
+    }
+
+    #[test]
+    fn fstring_segments_match_books_authors_unambiguous() {
+        // f"/api/books/{book_id}/authors/{author_id}" should match exactly one route.
+        let mut index = HashMap::new();
+        let (id1, rec1) = make_route(
+            "get_author",
+            "/api/books/{book_id}/authors/{author_id}",
+            crate::state::Method::Get,
+        );
+        let (id2, rec2) = make_route(
+            "get_publisher",
+            "/api/books/{book_id}/publishers/{pub_id}",
+            crate::state::Method::Get,
+        );
+        index.insert(id1.clone(), rec1);
+        index.insert(id2, rec2);
+
+        let segs = vec![
+            flit("/api/books/"),
+            FStringSegment::Wildcard,
+            flit("/authors/"),
+            FStringSegment::Wildcard,
+        ];
+        let matched = match_fstring_segments(&index, &segs, &crate::state::Method::Get);
+        assert_eq!(matched, vec![id1], "should match only the authors route");
+    }
+
+    #[test]
+    fn fstring_segments_ambiguous_returns_all() {
+        // Two routes with same depth but different param names at the same positions — both match.
+        let mut index = HashMap::new();
+        let (id1, rec1) = make_route("get_a", "/api/{a}", crate::state::Method::Get);
+        let (id2, rec2) = make_route("get_b", "/api/{b}", crate::state::Method::Get);
+        index.insert(id1.clone(), rec1);
+        index.insert(id2.clone(), rec2);
+
+        let segs = vec![flit("/api/"), FStringSegment::Wildcard];
+        let matched = match_fstring_segments(&index, &segs, &crate::state::Method::Get);
+        // Both match — caller is responsible for checking len==1.
+        assert_eq!(matched.len(), 2);
+    }
+
+    #[test]
+    fn fstring_segments_path_type_param_does_not_match() {
+        // Wildcard must NOT match {path:path} multi-segment routes (spec edge case).
+        let mut index = HashMap::new();
+        let (id, rec) = make_route("get_file", "/files/{path:path}", crate::state::Method::Get);
+        index.insert(id, rec);
+
+        let segs = vec![flit("/files/"), FStringSegment::Wildcard];
+        let matched = match_fstring_segments(&index, &segs, &crate::state::Method::Get);
+        assert!(
+            matched.is_empty(),
+            "wildcard must not match {{path:path}} route"
+        );
+    }
+
+    #[test]
+    fn fstring_segments_method_filter() {
+        let mut index = HashMap::new();
+        let (id, rec) = make_route("get_items", "/api/items/{id}", crate::state::Method::Get);
+        index.insert(id, rec);
+
+        let segs = vec![flit("/api/items/"), FStringSegment::Wildcard];
+        let matched = match_fstring_segments(&index, &segs, &crate::state::Method::Post);
+        assert!(matched.is_empty(), "method mismatch must not match");
     }
 }
