@@ -132,13 +132,11 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
 
     for fe in state.file_facts.iter() {
         for dep_ref in &fe.dep_refs {
-            if dep_ref.name == dep.name {
-                if let Some(func) = &dep_ref.containing_func {
-                    if let Some(display) = handler_func_to_display.get(func.as_str()) {
+            if dep_ref.name == dep.name
+                && let Some(func) = &dep_ref.containing_func
+                    && let Some(display) = handler_func_to_display.get(func.as_str()) {
                         using_route_set.insert(display.clone());
                     }
-                }
-            }
         }
     }
 
@@ -159,13 +157,12 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
     if !alias_names.is_empty() {
         for fe in state.file_facts.iter() {
             for param in &fe.plain_typed_params {
-                if alias_names.contains(&param.type_name) {
-                    if let Some(display) =
+                if alias_names.contains(&param.type_name)
+                    && let Some(display) =
                         handler_func_to_display.get(param.containing_func.as_str())
                     {
                         using_route_set.insert(display.clone());
                     }
-                }
             }
         }
     }
@@ -434,6 +431,16 @@ fn env_entry_card(key: &str, entry: Option<&EnvEntry>) -> String {
     }
 
     lines.join("\n")
+}
+
+fn make_hover(md: String) -> Hover {
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: md,
+        }),
+        range: None,
+    }
 }
 
 #[cfg(test)]
@@ -938,15 +945,5 @@ mod tests {
             md.contains("1 route"),
             "aliased router import must count routes from the declaring file; got: {md}"
         );
-    }
-}
-
-fn make_hover(md: String) -> Hover {
-    Hover {
-        contents: HoverContents::Markup(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: md,
-        }),
-        range: None,
     }
 }

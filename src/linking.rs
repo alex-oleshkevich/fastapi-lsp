@@ -1101,9 +1101,9 @@ fn match_prefix(
         .iter()
         .filter_map(|(id, records)| {
             records.first().and_then(|rec| {
-                if &rec.method == method {
-                    if let ResolvedPath::Resolved(ref path) = rec.resolved_path {
-                        if path.starts_with(prefix) {
+                if &rec.method == method
+                    && let ResolvedPath::Resolved(ref path) = rec.resolved_path
+                        && path.starts_with(prefix) {
                             if let Some(expected_depth) = path_depth {
                                 let route_depth = path.trim_end_matches('/').split('/').count();
                                 if route_depth != expected_depth {
@@ -1112,8 +1112,6 @@ fn match_prefix(
                             }
                             return Some(id.clone());
                         }
-                    }
-                }
                 None
             })
         })
@@ -1930,7 +1928,7 @@ mod tests {
         std::fs::create_dir(root.join("emails")).unwrap();
         std::fs::write(root.join("emails").join("welcome.html"), "").unwrap();
 
-        let index = build_template_index(&[root.clone()]);
+        let index = build_template_index(std::slice::from_ref(&root));
         let _ = std::fs::remove_dir_all(&root);
 
         assert!(index.contains_key("index.html"));

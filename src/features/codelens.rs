@@ -618,7 +618,7 @@ mod tests {
         let usage_lens = lenses.iter().find(|l| {
             l.command
                 .as_ref()
-                .map_or(false, |c| c.command == "editor.showReferences")
+                .is_some_and(|c| c.command == "editor.showReferences")
         });
         assert!(usage_lens.is_some(), "expected a dep-usage lens");
         assert_eq!(
@@ -640,7 +640,7 @@ mod tests {
             lenses.iter().all(|l| l
                 .command
                 .as_ref()
-                .map_or(true, |c| c.command != "editor.showReferences")),
+                .is_none_or(|c| c.command != "editor.showReferences")),
             "no usage lens expected when dep is unreferenced"
         );
     }
@@ -659,7 +659,7 @@ mod tests {
             lenses.iter().all(|l| l
                 .command
                 .as_ref()
-                .map_or(true, |c| c.command != "editor.showReferences")),
+                .is_none_or(|c| c.command != "editor.showReferences")),
             "single usage must not produce a lens"
         );
     }
@@ -683,7 +683,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "editor.showReferences")
+                    .is_some_and(|c| c.command == "editor.showReferences")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "2 usages");
@@ -716,7 +716,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "fastapi-lsp.routerRoutes")
+                    .is_some_and(|c| c.command == "fastapi-lsp.routerRoutes")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "2 routes");
@@ -740,7 +740,7 @@ mod tests {
             lenses.iter().all(|l| l
                 .command
                 .as_ref()
-                .map_or(true, |c| c.command != "fastapi-lsp.routerRoutes")),
+                .is_none_or(|c| c.command != "fastapi-lsp.routerRoutes")),
             "no route-count lens expected for empty router"
         );
     }
@@ -768,7 +768,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "fastapi-lsp.depCycle")
+                    .is_some_and(|c| c.command == "fastapi-lsp.depCycle")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "⚠ in dependency cycle");
@@ -787,7 +787,7 @@ mod tests {
             lenses.iter().all(|l| l
                 .command
                 .as_ref()
-                .map_or(true, |c| c.command != "fastapi-lsp.depCycle")),
+                .is_none_or(|c| c.command != "fastapi-lsp.depCycle")),
             "no cycle lens for dep not in any cycle"
         );
     }
@@ -855,7 +855,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "fastapi-lsp.modelRoutes")
+                    .is_some_and(|c| c.command == "fastapi-lsp.modelRoutes")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "used in 2 routes");
@@ -890,7 +890,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "fastapi-lsp.modelRoutes")
+                    .is_some_and(|c| c.command == "fastapi-lsp.modelRoutes")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "used in 1 route");
@@ -918,7 +918,7 @@ mod tests {
             lenses.iter().all(|l| l
                 .command
                 .as_ref()
-                .map_or(true, |c| c.command != "fastapi-lsp.modelRoutes")),
+                .is_none_or(|c| c.command != "fastapi-lsp.modelRoutes")),
             "BaseSettings subclass must not get a response-model lens"
         );
     }
@@ -945,9 +945,10 @@ mod tests {
         dep_graph
             .override_sites
             .insert(node_id, vec![override_loc.clone(), override_loc]);
-        let mut linked = Linked::default();
-        linked.dep_graph = dep_graph;
-        state.linked.store(Arc::new(linked));
+        state.linked.store(Arc::new(Linked {
+            dep_graph,
+            ..Default::default()
+        }));
 
         let lenses = code_lenses(&state, &uri);
         let l = lenses
@@ -955,7 +956,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "fastapi-lsp.depOverrides")
+                    .is_some_and(|c| c.command == "fastapi-lsp.depOverrides")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "2 test overrides");
@@ -981,9 +982,10 @@ mod tests {
                 range: Range::default(),
             }],
         );
-        let mut linked = Linked::default();
-        linked.dep_graph = dep_graph;
-        state.linked.store(Arc::new(linked));
+        state.linked.store(Arc::new(Linked {
+            dep_graph,
+            ..Default::default()
+        }));
 
         let lenses = code_lenses(&state, &uri);
         let l = lenses
@@ -991,7 +993,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "fastapi-lsp.depOverrides")
+                    .is_some_and(|c| c.command == "fastapi-lsp.depOverrides")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "1 test override");
@@ -1039,7 +1041,7 @@ mod tests {
             .find(|l| {
                 l.command
                     .as_ref()
-                    .map_or(false, |c| c.command == "editor.showReferences")
+                    .is_some_and(|c| c.command == "editor.showReferences")
             })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "12 usages");
@@ -1065,7 +1067,7 @@ mod tests {
             lenses.iter().all(|l| l
                 .command
                 .as_ref()
-                .map_or(true, |c| c.command != "editor.showReferences")),
+                .is_none_or(|c| c.command != "editor.showReferences")),
             "no alias lens when no handler params use it"
         );
     }
@@ -1093,7 +1095,7 @@ mod tests {
             lenses.iter().all(|l| l
                 .command
                 .as_ref()
-                .map_or(true, |c| c.command != "editor.showReferences")),
+                .is_none_or(|c| c.command != "editor.showReferences")),
             "single usage must not produce an alias lens"
         );
     }

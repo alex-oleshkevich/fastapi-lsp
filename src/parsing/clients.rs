@@ -38,11 +38,10 @@ fn collect_client_bindings(src: &[u8], node: Node<'_>, names: &mut HashSet<Strin
         if let (Some(lhs), Some(rhs)) = (
             node.child_by_field_name("left"),
             node.child_by_field_name("right"),
-        ) {
-            if lhs.kind() == "identifier" && is_test_client_ctor(src, rhs) {
+        )
+            && lhs.kind() == "identifier" && is_test_client_ctor(src, rhs) {
                 names.insert(node_text(src, lhs).to_owned());
             }
-        }
     } else if node.kind() == "typed_parameter" {
         collect_typed_param_client(src, node, names);
     }
@@ -69,11 +68,10 @@ fn collect_typed_param_client(src: &[u8], node: Node<'_>, names: &mut HashSet<St
             } else {
                 child
             };
-            if is_client_type_node(src, inner) {
-                if let Some(name) = param_name {
+            if is_client_type_node(src, inner)
+                && let Some(name) = param_name {
                     names.insert(name.to_owned());
                 }
-            }
             break;
         }
     }
@@ -214,9 +212,10 @@ fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
 /// - `"…%s…" % …`: prefix before `%s`/`%d`/etc., `is_prefix=true`.
 /// - `"a" + "b"`: concatenated exact path, `is_prefix=false`.
 /// - `"a" + variable`: prefix = "a", `is_prefix=true`.
+///
 /// Returns `(path, range, is_prefix, path_depth)`.
 /// `path_depth` is the total segment count when `is_prefix` is true and we can infer it from
-/// all static parts of the template (f-string, .format, %).  `None` for exact paths or `+`.
+/// all static parts of the template (f-string, .format, %). `None` for exact paths or `+`.
 fn first_arg_path(
     src: &[u8],
     args: Node<'_>,

@@ -421,11 +421,10 @@ fn cross_route_diags(
                             return None;
                         }
                         // Resolve alias: `from X import router as projects_router` → "router"
-                        if let Some(original) = facts.import_alias_originals.get(&inc.target) {
-                            if all_known.contains(original) {
+                        if let Some(original) = facts.import_alias_originals.get(&inc.target)
+                            && all_known.contains(original) {
                                 return None;
                             }
-                        }
                         Some(inc.target.clone())
                     })
                     .collect::<Vec<_>>()
@@ -2932,7 +2931,7 @@ mod tests {
         // never_router is not included anywhere; even though there's an unresolved route,
         // the diagnostic should fire because no include targets match "never_router"
         let (state, uri) = make_router_not_included_state("never_router", true, None);
-        let diags = compute(&*state, &uri, &[]);
+        let diags = compute(&state, &uri, &[]);
         let not_included: Vec<_> = diags
             .iter()
             .filter(|d| {
@@ -2954,7 +2953,7 @@ mod tests {
         // there's an unresolved include whose target IS "never_router" → suppress
         let (state, uri) =
             make_router_not_included_state("never_router", true, Some("never_router"));
-        let diags = compute(&*state, &uri, &[]);
+        let diags = compute(&state, &uri, &[]);
         let not_included: Vec<_> = diags
             .iter()
             .filter(|d| {
@@ -3000,7 +2999,7 @@ mod tests {
                 resolved_path: ResolvedPath::Resolved(path.to_owned()),
                 decorator_path: path
                     .split('/')
-                    .last()
+                    .next_back()
                     .map(|s| format!("/{s}"))
                     .unwrap_or_else(|| path.to_owned()),
                 chain: vec![],
@@ -3066,7 +3065,7 @@ mod tests {
             "/companies/list",
             None, // no url_for call anywhere
         );
-        let diags = compute(&*state, &uri, &[]);
+        let diags = compute(&state, &uri, &[]);
         let dup_name: Vec<_> = diags
             .iter()
             .filter(|d| d.code == Some(NumberOrString::String("route/duplicate-name".to_owned())))
@@ -3086,7 +3085,7 @@ mod tests {
             "/companies/list",
             Some("index_view"), // url_for('index_view') present
         );
-        let diags = compute(&*state, &uri, &[]);
+        let diags = compute(&state, &uri, &[]);
         let dup_name: Vec<_> = diags
             .iter()
             .filter(|d| d.code == Some(NumberOrString::String("route/duplicate-name".to_owned())))
@@ -3207,7 +3206,7 @@ mod tests {
             vec!["id".to_owned()],
             None,
         );
-        let diags = compute(&*state, &uri, &[]);
+        let diags = compute(&state, &uri, &[]);
         let missing: Vec<_> = diags
             .iter()
             .filter(|d| {
@@ -3235,7 +3234,7 @@ mod tests {
             vec!["inner".to_owned()], // check_auth's direct params
             Some(("get_project", vec!["id".to_owned()])),
         );
-        let diags = compute(&*state, &uri, &[]);
+        let diags = compute(&state, &uri, &[]);
         let missing: Vec<_> = diags
             .iter()
             .filter(|d| {

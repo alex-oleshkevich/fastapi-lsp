@@ -297,15 +297,14 @@ pub async fn scan(state: &Arc<WorkspaceState>, root: &std::path::Path) {
                     state.bump_generation();
                 }
             }
-        } else if crate::server::is_env_filename(filename) {
-            if let Ok(src) = std::fs::read_to_string(path)
+        } else if crate::server::is_env_filename(filename)
+            && let Ok(src) = std::fs::read_to_string(path)
                 && let Some(uri) = crate::uri::path_to_uri(path)
             {
                 let entries = crate::parsing::dotenv::parse(&src, &uri);
                 state.env_file_entries.insert(uri, entries);
                 state.bump_generation();
             }
-        }
     }
 }
 
@@ -361,7 +360,7 @@ mod tests {
 
     #[test]
     fn has_findings_true_for_warning() {
-        let diags = vec![(
+        let diags = [(
             "file:///a.py".to_owned(),
             make_diag(DiagnosticSeverity::WARNING, "route/duplicate"),
         )];
@@ -376,7 +375,7 @@ mod tests {
 
     #[test]
     fn has_findings_false_for_info_only() {
-        let diags = vec![(
+        let diags = [(
             "file:///a.py".to_owned(),
             make_diag(DiagnosticSeverity::INFORMATION, "env/undefined-key"),
         )];
@@ -391,7 +390,7 @@ mod tests {
 
     #[test]
     fn has_findings_false_for_hint_only() {
-        let diags = vec![(
+        let diags = [(
             "file:///a.py".to_owned(),
             make_diag(DiagnosticSeverity::HINT, "route/arg-missing-param"),
         )];

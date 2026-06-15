@@ -581,11 +581,10 @@ fn kwarg_string_value(src: &[u8], args: Node<'_>, name: &str) -> Option<String> 
     for child in args.children(&mut cursor) {
         if child.kind() == "keyword_argument" {
             let key = child.child(0).map(|n| node_text(src, n)).unwrap_or("");
-            if key == name {
-                if let Some(val) = child.child(2) {
+            if key == name
+                && let Some(val) = child.child(2) {
                     return string_value(src, val);
                 }
-            }
         }
     }
     None

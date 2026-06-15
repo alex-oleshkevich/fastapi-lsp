@@ -1286,6 +1286,607 @@ fn extract_handler_block(
     Some((block_start, block_end, block_text))
 }
 
+/// Find a `deps.py` or `dependencies.py` file in the same directory as the given file.
+/// Used to locate the target module for workspace-scoped alias extraction.
+fn find_dependency_file(
+    handler_uri: &tower_lsp_server::ls_types::Uri,
+    state: &WorkspaceState,
+) -> Option<tower_lsp_server::ls_types::Uri> {
+    let handler_path = uri_to_path(handler_uri)?;
+    let handler_dir = handler_path.parent()?;
+    for name in &["deps.py", "dependencies.py"] {
+        let candidate = path_to_uri(&handler_dir.join(name))?;
+        if state.file_sources.contains_key(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Find a `deps.py` file in the same directory as the handler file.
+fn find_deps_file(
+    handler_uri: &tower_lsp_server::ls_types::Uri,
+    state: &WorkspaceState,
+) -> Option<tower_lsp_server::ls_types::Uri> {
+    let handler_path = uri_to_path(handler_uri)?;
+    let handler_dir = handler_path.parent()?;
+    let deps_uri = path_to_uri(&handler_dir.join("deps.py"))?;
+    if state.file_sources.contains_key(&deps_uri) {
+        Some(deps_uri)
+    } else {
+        None
+    }
+}
+
+/// Build the "Create dependency `{name}`" code action.
+/// Appends a stub to `deps.py` (with an import) when one exists in the same package,
+/// or inserts the stub inline above the enclosing handler when no deps.py is present.
+fn build_create_dependency_action(
+    dep_name: &str,
+    containing_func: Option<&str>,
+    handler_uri: &tower_lsp_server::ls_types::Uri,
+    facts: &crate::state::FileFacts,
+    workspace_root: &PathBuf,
+    state: &WorkspaceState,
+) -> Option<CodeAction> {
+    let stub = format!("\ndef {dep_name}():\n    ...\n");
+
+    if let Some(deps_uri) = find_deps_file(handler_uri, state) {
+        // deps.py exists — append stub there and add import to current file
+        let module_path =
+            uri_to_module_path(&deps_uri, workspace_root).unwrap_or_else(|| "deps".to_owned());
+        let import_text = format!("from {module_path} import {dep_name}\n");
+
+        return Some(CodeAction {
+            title: format!("Create dependency `{dep_name}` in {module_path}"),
+            kind: Some(CodeActionKind::QUICKFIX),
+            edit: Some(WorkspaceEdit {
+                document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
+                    TextDocumentEdit {
+                        text_document: OptionalVersionedTextDocumentIdentifier {
+                            uri: deps_uri.clone(),
+                            version: None,
+                        },
+                        edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                            range: Range {
+                                start: Position::new(APPEND_LINE, 0),
+                                end: Position::new(APPEND_LINE, 0),
+                            },
+                            new_text: stub,
+                        })],
+                    },
+                    TextDocumentEdit {
+                        text_document: OptionalVersionedTextDocumentIdentifier {
+                            uri: handler_uri.clone(),
+                            version: None,
+                        },
+                        edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                            range: {
+                                let ins = state
+                                    .file_sources
+                                    .get(handler_uri)
+                                    .map(|s| import_insert_line(s.as_str()))
+                                    .unwrap_or(0);
+                                Range {
+                                    start: Position::new(ins, 0),
+                                    end: Position::new(ins, 0),
+                                }
+                            },
+                            new_text: import_text,
+                        })],
+                    },
+                ])),
+                ..Default::default()
+            }),
+            is_preferred: Some(true),
+            ..Default::default()
+        });
+    }
+
+    // No deps.py — insert stub inline above the enclosing handler
+    let func_name = containing_func?;
+    let handler_line = facts
+        .routes
+        .iter()
+        .find(|rf| rf.handler_name == func_name)
+        .map(|rf| rf.handler_range.start.line)?;
+
+    let source = state.file_sources.get(handler_uri)?;
+    let lines: Vec<&str> = source.lines().collect();
+    let insert_line = (0..handler_line as usize)
+        .rev()
+        .find(|&i| {
+            lines
+                .get(i)
+                .is_some_and(|l| l.trim_start().starts_with('@'))
+        })
+        .unwrap_or(handler_line as usize);
+
+    Some(CodeAction {
+        title: format!("Create dependency `{dep_name}` above handler"),
+        kind: Some(CodeActionKind::QUICKFIX),
+        edit: Some(WorkspaceEdit {
+            document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
+                TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier {
+                        uri: handler_uri.clone(),
+                        version: None,
+                    },
+                    edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                        range: Range {
+                            start: Position::new(insert_line as u32, 0),
+                            end: Position::new(insert_line as u32, 0),
+                        },
+                        new_text: format!("\n\ndef {dep_name}():\n    ...\n\n\n"),
+                    })],
+                },
+            ])),
+            ..Default::default()
+        }),
+        is_preferred: Some(true),
+        ..Default::default()
+    })
+}
+
+/// Convert a workspace file URI to a dotted Python module path relative to the workspace root.
+/// `file:///project/app/models.py` with root `/project` → `app.models`.
+fn uri_to_module_path(uri: &tower_lsp_server::ls_types::Uri, root: &PathBuf) -> Option<String> {
+    let file_path = uri_to_path(uri)?;
+    let rel = file_path.strip_prefix(root).ok()?;
+    let without_ext = rel.with_extension("");
+    let module = without_ext
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .filter(|s| *s != "__init__")
+        .collect::<Vec<_>>()
+        .join(".");
+    if module.is_empty() {
+        None
+    } else {
+        Some(module)
+    }
+}
+
+fn module_path_to_uri(
+    module_path: &str,
+    root: &std::path::Path,
+) -> Option<tower_lsp_server::ls_types::Uri> {
+    // Relative imports (starting with '.') can't be resolved to an absolute path
+    if module_path.starts_with('.') {
+        return None;
+    }
+    let rel: PathBuf = module_path.split('.').collect();
+    path_to_uri(&root.join(rel).with_extension("py"))
+}
+
+fn is_camel_case(s: &str) -> bool {
+    // Reject generic types (Optional[X], List[X], etc.) — they contain brackets/commas
+    if s.contains(['[', ']', ',', ' ']) {
+        return false;
+    }
+    s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+}
+
+/// Resolve the target file for "Create model": imports-first, then schemas.py fallback.
+/// Imports-first: if the current file already imports from a workspace module that has Pydantic
+/// models, use that module as the target. Sorted for determinism when multiple candidates match.
+/// Otherwise use `schemas.py` in the same directory.
+fn resolve_create_model_target(
+    imported_from: &std::collections::HashMap<String, String>,
+    current_uri: &tower_lsp_server::ls_types::Uri,
+    workspace_root: &std::path::Path,
+    state: &WorkspaceState,
+) -> Option<tower_lsp_server::ls_types::Uri> {
+    let mut candidates: Vec<_> = imported_from
+        .values()
+        .filter_map(|module_path| {
+            let candidate_uri = module_path_to_uri(module_path, workspace_root)?;
+            let facts = state.file_facts.get(&candidate_uri)?;
+            if facts.models.is_empty() {
+                return None;
+            }
+            Some((module_path.clone(), candidate_uri))
+        })
+        .collect();
+    candidates.sort_by(|a, b| a.0.cmp(&b.0));
+    if let Some((_, uri)) = candidates.into_iter().next() {
+        return Some(uri);
+    }
+    let current_path = uri_to_path(current_uri)?;
+    path_to_uri(&current_path.parent()?.join("schemas.py"))
+}
+
+fn build_create_model_action(
+    model_name: &str,
+    target_uri: &tower_lsp_server::ls_types::Uri,
+    workspace_root: &PathBuf,
+    state: &WorkspaceState,
+    target_exists: bool,
+) -> Option<CodeAction> {
+    use tower_lsp_server::ls_types::{
+        CreateFile, CreateFileOptions, DocumentChangeOperation, ResourceOp,
+    };
+
+    let target_module = uri_to_module_path(target_uri, workspace_root)?;
+
+    let document_changes = if target_exists {
+        let source = state
+            .file_sources
+            .get(target_uri)
+            .map(|s| s.clone())
+            .unwrap_or_default();
+        // Only suppress import prepend when a pydantic import line already brings in BaseModel
+        let needs_import = !source.lines().any(|l| {
+            let l = l.trim();
+            l == "from pydantic import *"
+                || (l.starts_with("from pydantic import") && l.contains("BaseModel"))
+        });
+
+        let mut edits = vec![];
+        if needs_import {
+            edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                range: Range {
+                    start: Position::new(0, 0),
+                    end: Position::new(0, 0),
+                },
+                new_text: "from pydantic import BaseModel\n".to_owned(),
+            }));
+        }
+        edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+            range: Range {
+                start: Position::new(APPEND_LINE, 0),
+                end: Position::new(APPEND_LINE, 0),
+            },
+            new_text: format!("\nclass {model_name}(BaseModel):\n    pass\n"),
+        }));
+        tower_lsp_server::ls_types::DocumentChanges::Edits(vec![TextDocumentEdit {
+            text_document: OptionalVersionedTextDocumentIdentifier {
+                uri: target_uri.clone(),
+                version: None,
+            },
+            edits,
+        }])
+    } else {
+        let file_content =
+            format!("from pydantic import BaseModel\n\nclass {model_name}(BaseModel):\n    pass\n");
+        tower_lsp_server::ls_types::DocumentChanges::Operations(vec![
+            DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                uri: target_uri.clone(),
+                options: Some(CreateFileOptions {
+                    overwrite: Some(false),
+                    ignore_if_exists: Some(true),
+                }),
+                annotation_id: None,
+            })),
+            DocumentChangeOperation::Edit(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: target_uri.clone(),
+                    version: None,
+                },
+                edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: Position::new(0, 0),
+                    },
+                    new_text: file_content,
+                })],
+            }),
+        ])
+    };
+
+    Some(CodeAction {
+        title: format!("Create model `{model_name}` in {target_module}"),
+        kind: Some(CodeActionKind::QUICKFIX),
+        edit: Some(WorkspaceEdit {
+            document_changes: Some(document_changes),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+/// Extract the longest common path prefix (at segment boundaries, literal segments only).
+/// Stops at the first parameterized segment `{...}`. Returns "" when no common prefix exists.
+fn longest_common_literal_path_prefix(paths: &[&str]) -> String {
+    if paths.is_empty() {
+        return String::new();
+    }
+    let segments_per_path: Vec<Vec<&str>> = paths
+        .iter()
+        .map(|p| p.split('/').filter(|s| !s.is_empty()).collect())
+        .collect();
+    let min_len = segments_per_path.iter().map(|s| s.len()).min().unwrap_or(0);
+    let mut common: Vec<&str> = Vec::new();
+    for i in 0..min_len {
+        let seg = segments_per_path[0][i];
+        if seg.contains('{') {
+            break;
+        }
+        if segments_per_path.iter().all(|s| s.get(i) == Some(&seg)) {
+            common.push(seg);
+        } else {
+            break;
+        }
+    }
+    if common.is_empty() {
+        return String::new();
+    }
+    format!("/{}", common.join("/"))
+}
+
+/// Find the first decorator line (`@...`) before the handler def line, scanning backward.
+fn find_decorator_line(lines: &[&str], record: &crate::state::RouteRecord) -> Option<usize> {
+    let def_line = record.handler.range.start.line as usize;
+    (0..def_line).rev().find(|&i| {
+        lines
+            .get(i)
+            .is_some_and(|l| l.trim_start().starts_with('@'))
+    })
+}
+
+/// Find the decorator line that contains the path string at `path_range`.
+/// For single-line decorators the path line IS the decorator line; for multi-line, scan backward.
+fn find_decorator_line_for_path(lines: &[&str], path_range: Range) -> Option<usize> {
+    let path_line = path_range.start.line as usize;
+    if lines
+        .get(path_line)
+        .is_some_and(|l| l.trim_start().starts_with('@'))
+    {
+        return Some(path_line);
+    }
+    (0..path_line).rev().find(|&i| {
+        lines
+            .get(i)
+            .is_some_and(|l| l.trim_start().starts_with('@'))
+    })
+}
+
+/// Return the range of `object_name` in a decorator line `@{object_name}.method(...)`.
+fn find_object_range_in_decorator(line: &str, object_name: &str, line_num: u32) -> Option<Range> {
+    let at_pos = line.find('@')?;
+    let after_at = &line[at_pos + 1..];
+    if !after_at.starts_with(object_name) {
+        return None;
+    }
+    let next_idx = at_pos + 1 + object_name.len();
+    if !line
+        .get(next_idx..)
+        .is_some_and(|rest| rest.starts_with('.'))
+    {
+        return None;
+    }
+    Some(Range {
+        start: Position::new(line_num, (at_pos + 1) as u32),
+        end: Position::new(line_num, next_idx as u32),
+    })
+}
+
+/// Build the "Extract router with prefix" code action, or None when the gate conditions are not met.
+fn extract_router_action(
+    uri: &tower_lsp_server::ls_types::Uri,
+    cursor_range: Range,
+    facts: &crate::state::FileFacts,
+    linked: &crate::state::Linked,
+    state: &WorkspaceState,
+    _workspace_root: &PathBuf,
+    source: &str,
+) -> Option<CodeAction> {
+    let lines: Vec<&str> = source.lines().collect();
+
+    // Build object_name lookup from RouteFact (not carried through to RouteRecord)
+    let object_name_map: std::collections::HashMap<&str, &str> = facts
+        .routes
+        .iter()
+        .map(|rf| (rf.handler_name.as_str(), rf.object_name.as_str()))
+        .collect();
+
+    // Collect all include_router targets across the workspace so we can gate out routes
+    // that are already included (replacing the always-empty `chain` check from the old design)
+    let included_targets: std::collections::HashSet<String> = state
+        .file_facts
+        .iter()
+        .flat_map(|e| {
+            e.value()
+                .includes
+                .iter()
+                .flat_map(|inc| {
+                    let mut keys = vec![inc.target.clone()];
+                    // Also index the last dotted component (e.g. "books.router" → "router")
+                    if let Some(suffix) = inc.target.rsplit('.').next()
+                        && suffix != inc.target
+                    {
+                        keys.push(suffix.to_owned());
+                    }
+                    keys
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    // Candidate routes: same file, NOT already included elsewhere, resolved, with a path_range
+    let candidates: Vec<&crate::state::RouteRecord> = linked
+        .route_index
+        .values()
+        .flat_map(|v| v.iter())
+        .filter(|r| &r.handler.uri == uri)
+        .filter(|r| {
+            // RouteId format: "{uri}:{handler_name}:{method}" — uri may contain colons,
+            // so split from the right to get handler_name
+            let handler_name = r.id.0.rsplit(':').nth(1).unwrap_or("");
+            let obj_name = object_name_map
+                .get(handler_name)
+                .copied()
+                .unwrap_or(handler_name);
+            !included_targets.contains(obj_name)
+        })
+        .filter(|r| matches!(r.resolved_path, ResolvedPath::Resolved(_)))
+        .filter(|r| r.path_range.is_some())
+        .collect();
+
+    if candidates.len() < 2 {
+        return None;
+    }
+
+    // Find the handler the cursor is on
+    let cursor_record = candidates.iter().copied().find(|r| {
+        position_in_range(
+            cursor_range.start,
+            r.handler.range.start,
+            r.handler.range.end,
+        ) || position_in_range(cursor_range.end, r.handler.range.start, r.handler.range.end)
+    })?;
+
+    let cursor_obj = *object_name_map.get(cursor_record.name.as_str())?;
+
+    // Restrict to routes on the same object
+    let same_obj: Vec<&crate::state::RouteRecord> = candidates
+        .iter()
+        .copied()
+        .filter(|r| object_name_map.get(r.name.as_str()) == Some(&cursor_obj))
+        .collect();
+
+    if same_obj.len() < 2 {
+        return None;
+    }
+
+    // Compute LCP of all paths on this object
+    let all_paths: Vec<&str> = same_obj
+        .iter()
+        .filter_map(|r| match &r.resolved_path {
+            ResolvedPath::Resolved(p) => Some(p.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    let prefix = longest_common_literal_path_prefix(&all_paths);
+    if prefix.is_empty() {
+        return None;
+    }
+
+    // Group: routes whose resolved_path starts with prefix at a segment boundary.
+    // Use p.get() to avoid a panic when prefix.len() is not a valid char boundary.
+    let group: Vec<&crate::state::RouteRecord> = same_obj
+        .iter()
+        .copied()
+        .filter(|r| match &r.resolved_path {
+            ResolvedPath::Resolved(p) => {
+                p == &prefix
+                    || p.get(prefix.len()..)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            }
+            _ => false,
+        })
+        .collect();
+
+    if group.len() < 2 {
+        return None;
+    }
+
+    // Pick router variable name (avoid "router" if already declared in this file)
+    let router_name: String = if facts.routers.iter().any(|r| r.name == "router") {
+        let last_seg = prefix
+            .rsplit('/')
+            .find(|s| !s.is_empty() && !s.contains('{'))
+            .unwrap_or("sub");
+        format!("{last_seg}_router")
+    } else {
+        "router".to_owned()
+    };
+
+    let needs_apirouter_import = !facts
+        .imported_names
+        .iter()
+        .any(|n| n == "APIRouter" || n == "*");
+
+    // Find first handler's decorator line for the insert position
+    let first_record = group.iter().min_by_key(|r| r.handler.range.start.line)?;
+    let first_deco_line = find_decorator_line(&lines, first_record)?;
+
+    // Build edits, highest line first (defensive ordering for non-compliant LSP clients)
+    let mut edits: Vec<
+        tower_lsp_server::ls_types::OneOf<TextEdit, tower_lsp_server::ls_types::AnnotatedTextEdit>,
+    > = Vec::new();
+
+    // Append include_router at end (highest effective line)
+    edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+        range: Range {
+            start: Position::new(APPEND_LINE, 0),
+            end: Position::new(APPEND_LINE, 0),
+        },
+        new_text: format!("\n{cursor_obj}.include_router({router_name})\n"),
+    }));
+
+    // Per-handler edits in reverse line order; deduplicate on path_range
+    let mut sorted_group = group.clone();
+    sorted_group.sort_by_key(|r| std::cmp::Reverse(r.handler.range.start.line));
+    let mut seen_path_ranges = std::collections::HashSet::<Range>::new();
+
+    for record in &sorted_group {
+        let path_range = record.path_range.unwrap();
+        if !seen_path_ranges.insert(path_range) {
+            continue;
+        }
+
+        let resolved = match &record.resolved_path {
+            ResolvedPath::Resolved(p) => p.as_str(),
+            _ => continue,
+        };
+        let stripped = resolved.get(prefix.len()..).unwrap_or("");
+        let new_path = format!("\"{stripped}\"");
+
+        // Edit: replace path string
+        edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+            range: path_range,
+            new_text: new_path,
+        }));
+
+        // Edit: replace object_name with router_name in decorator line.
+        // If the decorator line can't be found, the action would produce broken Python
+        // (path stripped but object not renamed) — abort the whole action.
+        let deco_line = find_decorator_line_for_path(&lines, path_range)?;
+        let deco_str = lines.get(deco_line)?;
+        let obj_range = find_object_range_in_decorator(deco_str, cursor_obj, deco_line as u32)?;
+        edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+            range: obj_range,
+            new_text: router_name.clone(),
+        }));
+    }
+
+    // Insert router declaration + optional APIRouter import before first decorator
+    let mut router_decl = String::new();
+    if needs_apirouter_import {
+        router_decl.push_str("from fastapi import APIRouter\n");
+    }
+    router_decl.push_str(&format!(
+        "{router_name} = APIRouter(prefix=\"{prefix}\")\n\n"
+    ));
+    edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+        range: Range {
+            start: Position::new(first_deco_line as u32, 0),
+            end: Position::new(first_deco_line as u32, 0),
+        },
+        new_text: router_decl,
+    }));
+
+    Some(CodeAction {
+        title: format!("Extract router with prefix `{prefix}`"),
+        kind: Some(CodeActionKind::REFACTOR_EXTRACT),
+        edit: Some(WorkspaceEdit {
+            document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
+                TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier {
+                        uri: uri.clone(),
+                        version: None,
+                    },
+                    edits,
+                },
+            ])),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1531,14 +2132,12 @@ mod tests {
         let edit = action.edit.as_ref().unwrap();
         if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
             &edit.document_changes
-        {
-            if let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
+            && let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
                 assert!(
                     te.new_text.starts_with(", "),
                     "should prepend comma when params exist"
                 );
             }
-        }
     }
 
     #[test]
@@ -1797,14 +2396,12 @@ mod tests {
             document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)),
             ..
         }) = &action.edit
-        {
-            if let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
+            && let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
                 assert_eq!(
                     te.new_text, "/{boook_id}",
                     "segment text uses handler param name"
                 );
             }
-        }
     }
 
     fn make_state_with_annotated_param(
@@ -2199,7 +2796,7 @@ mod tests {
         response_model: &str,
         rm_range: Range,
     ) -> (crate::state::RouteId, RouteRecord) {
-        let id = crate::state::RouteId(format!("app.handler:GET"));
+        let id = crate::state::RouteId("app.handler:GET".to_string());
         let record = RouteRecord {
             id: id.clone(),
             ordinal: 0,
@@ -4166,605 +4763,4 @@ mod tests {
             "end character must point inside last line"
         );
     }
-}
-
-/// Find a `deps.py` or `dependencies.py` file in the same directory as the given file.
-/// Used to locate the target module for workspace-scoped alias extraction.
-fn find_dependency_file(
-    handler_uri: &tower_lsp_server::ls_types::Uri,
-    state: &WorkspaceState,
-) -> Option<tower_lsp_server::ls_types::Uri> {
-    let handler_path = uri_to_path(handler_uri)?;
-    let handler_dir = handler_path.parent()?;
-    for name in &["deps.py", "dependencies.py"] {
-        let candidate = path_to_uri(&handler_dir.join(name))?;
-        if state.file_sources.contains_key(&candidate) {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-/// Find a `deps.py` file in the same directory as the handler file.
-fn find_deps_file(
-    handler_uri: &tower_lsp_server::ls_types::Uri,
-    state: &WorkspaceState,
-) -> Option<tower_lsp_server::ls_types::Uri> {
-    let handler_path = uri_to_path(handler_uri)?;
-    let handler_dir = handler_path.parent()?;
-    let deps_uri = path_to_uri(&handler_dir.join("deps.py"))?;
-    if state.file_sources.contains_key(&deps_uri) {
-        Some(deps_uri)
-    } else {
-        None
-    }
-}
-
-/// Build the "Create dependency `{name}`" code action.
-/// Appends a stub to `deps.py` (with an import) when one exists in the same package,
-/// or inserts the stub inline above the enclosing handler when no deps.py is present.
-fn build_create_dependency_action(
-    dep_name: &str,
-    containing_func: Option<&str>,
-    handler_uri: &tower_lsp_server::ls_types::Uri,
-    facts: &crate::state::FileFacts,
-    workspace_root: &PathBuf,
-    state: &WorkspaceState,
-) -> Option<CodeAction> {
-    let stub = format!("\ndef {dep_name}():\n    ...\n");
-
-    if let Some(deps_uri) = find_deps_file(handler_uri, state) {
-        // deps.py exists — append stub there and add import to current file
-        let module_path =
-            uri_to_module_path(&deps_uri, workspace_root).unwrap_or_else(|| "deps".to_owned());
-        let import_text = format!("from {module_path} import {dep_name}\n");
-
-        return Some(CodeAction {
-            title: format!("Create dependency `{dep_name}` in {module_path}"),
-            kind: Some(CodeActionKind::QUICKFIX),
-            edit: Some(WorkspaceEdit {
-                document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
-                    TextDocumentEdit {
-                        text_document: OptionalVersionedTextDocumentIdentifier {
-                            uri: deps_uri.clone(),
-                            version: None,
-                        },
-                        edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                            range: Range {
-                                start: Position::new(APPEND_LINE, 0),
-                                end: Position::new(APPEND_LINE, 0),
-                            },
-                            new_text: stub,
-                        })],
-                    },
-                    TextDocumentEdit {
-                        text_document: OptionalVersionedTextDocumentIdentifier {
-                            uri: handler_uri.clone(),
-                            version: None,
-                        },
-                        edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                            range: {
-                                let ins = state
-                                    .file_sources
-                                    .get(handler_uri)
-                                    .map(|s| import_insert_line(s.as_str()))
-                                    .unwrap_or(0);
-                                Range {
-                                    start: Position::new(ins, 0),
-                                    end: Position::new(ins, 0),
-                                }
-                            },
-                            new_text: import_text,
-                        })],
-                    },
-                ])),
-                ..Default::default()
-            }),
-            is_preferred: Some(true),
-            ..Default::default()
-        });
-    }
-
-    // No deps.py — insert stub inline above the enclosing handler
-    let func_name = containing_func?;
-    let handler_line = facts
-        .routes
-        .iter()
-        .find(|rf| rf.handler_name == func_name)
-        .map(|rf| rf.handler_range.start.line)?;
-
-    let source = state.file_sources.get(handler_uri)?;
-    let lines: Vec<&str> = source.lines().collect();
-    let insert_line = (0..handler_line as usize)
-        .rev()
-        .find(|&i| {
-            lines
-                .get(i)
-                .is_some_and(|l| l.trim_start().starts_with('@'))
-        })
-        .unwrap_or(handler_line as usize);
-
-    Some(CodeAction {
-        title: format!("Create dependency `{dep_name}` above handler"),
-        kind: Some(CodeActionKind::QUICKFIX),
-        edit: Some(WorkspaceEdit {
-            document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
-                TextDocumentEdit {
-                    text_document: OptionalVersionedTextDocumentIdentifier {
-                        uri: handler_uri.clone(),
-                        version: None,
-                    },
-                    edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                        range: Range {
-                            start: Position::new(insert_line as u32, 0),
-                            end: Position::new(insert_line as u32, 0),
-                        },
-                        new_text: format!("\n\ndef {dep_name}():\n    ...\n\n\n"),
-                    })],
-                },
-            ])),
-            ..Default::default()
-        }),
-        is_preferred: Some(true),
-        ..Default::default()
-    })
-}
-
-/// Convert a workspace file URI to a dotted Python module path relative to the workspace root.
-/// `file:///project/app/models.py` with root `/project` → `app.models`.
-fn uri_to_module_path(uri: &tower_lsp_server::ls_types::Uri, root: &PathBuf) -> Option<String> {
-    let file_path = uri_to_path(uri)?;
-    let rel = file_path.strip_prefix(root).ok()?;
-    let without_ext = rel.with_extension("");
-    let module = without_ext
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .filter(|s| *s != "__init__")
-        .collect::<Vec<_>>()
-        .join(".");
-    if module.is_empty() {
-        None
-    } else {
-        Some(module)
-    }
-}
-
-fn module_path_to_uri(
-    module_path: &str,
-    root: &std::path::Path,
-) -> Option<tower_lsp_server::ls_types::Uri> {
-    // Relative imports (starting with '.') can't be resolved to an absolute path
-    if module_path.starts_with('.') {
-        return None;
-    }
-    let rel: PathBuf = module_path.split('.').collect();
-    path_to_uri(&root.join(rel).with_extension("py"))
-}
-
-fn is_camel_case(s: &str) -> bool {
-    // Reject generic types (Optional[X], List[X], etc.) — they contain brackets/commas
-    if s.contains(['[', ']', ',', ' ']) {
-        return false;
-    }
-    s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
-}
-
-/// Resolve the target file for "Create model": imports-first, then schemas.py fallback.
-/// Imports-first: if the current file already imports from a workspace module that has Pydantic
-/// models, use that module as the target. Sorted for determinism when multiple candidates match.
-/// Otherwise use `schemas.py` in the same directory.
-fn resolve_create_model_target(
-    imported_from: &std::collections::HashMap<String, String>,
-    current_uri: &tower_lsp_server::ls_types::Uri,
-    workspace_root: &std::path::Path,
-    state: &WorkspaceState,
-) -> Option<tower_lsp_server::ls_types::Uri> {
-    let mut candidates: Vec<_> = imported_from
-        .values()
-        .filter_map(|module_path| {
-            let candidate_uri = module_path_to_uri(module_path, workspace_root)?;
-            let facts = state.file_facts.get(&candidate_uri)?;
-            if facts.models.is_empty() {
-                return None;
-            }
-            Some((module_path.clone(), candidate_uri))
-        })
-        .collect();
-    candidates.sort_by(|a, b| a.0.cmp(&b.0));
-    if let Some((_, uri)) = candidates.into_iter().next() {
-        return Some(uri);
-    }
-    let current_path = uri_to_path(current_uri)?;
-    path_to_uri(&current_path.parent()?.join("schemas.py"))
-}
-
-fn build_create_model_action(
-    model_name: &str,
-    target_uri: &tower_lsp_server::ls_types::Uri,
-    workspace_root: &PathBuf,
-    state: &WorkspaceState,
-    target_exists: bool,
-) -> Option<CodeAction> {
-    use tower_lsp_server::ls_types::{
-        CreateFile, CreateFileOptions, DocumentChangeOperation, ResourceOp,
-    };
-
-    let target_module = uri_to_module_path(target_uri, workspace_root)?;
-
-    let document_changes = if target_exists {
-        let source = state
-            .file_sources
-            .get(target_uri)
-            .map(|s| s.clone())
-            .unwrap_or_default();
-        // Only suppress import prepend when a pydantic import line already brings in BaseModel
-        let needs_import = !source.lines().any(|l| {
-            let l = l.trim();
-            l == "from pydantic import *"
-                || (l.starts_with("from pydantic import") && l.contains("BaseModel"))
-        });
-
-        let mut edits = vec![];
-        if needs_import {
-            edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                range: Range {
-                    start: Position::new(0, 0),
-                    end: Position::new(0, 0),
-                },
-                new_text: "from pydantic import BaseModel\n".to_owned(),
-            }));
-        }
-        edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-            range: Range {
-                start: Position::new(APPEND_LINE, 0),
-                end: Position::new(APPEND_LINE, 0),
-            },
-            new_text: format!("\nclass {model_name}(BaseModel):\n    pass\n"),
-        }));
-        tower_lsp_server::ls_types::DocumentChanges::Edits(vec![TextDocumentEdit {
-            text_document: OptionalVersionedTextDocumentIdentifier {
-                uri: target_uri.clone(),
-                version: None,
-            },
-            edits,
-        }])
-    } else {
-        let file_content =
-            format!("from pydantic import BaseModel\n\nclass {model_name}(BaseModel):\n    pass\n");
-        tower_lsp_server::ls_types::DocumentChanges::Operations(vec![
-            DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
-                uri: target_uri.clone(),
-                options: Some(CreateFileOptions {
-                    overwrite: Some(false),
-                    ignore_if_exists: Some(true),
-                }),
-                annotation_id: None,
-            })),
-            DocumentChangeOperation::Edit(TextDocumentEdit {
-                text_document: OptionalVersionedTextDocumentIdentifier {
-                    uri: target_uri.clone(),
-                    version: None,
-                },
-                edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                    range: Range {
-                        start: Position::new(0, 0),
-                        end: Position::new(0, 0),
-                    },
-                    new_text: file_content,
-                })],
-            }),
-        ])
-    };
-
-    Some(CodeAction {
-        title: format!("Create model `{model_name}` in {target_module}"),
-        kind: Some(CodeActionKind::QUICKFIX),
-        edit: Some(WorkspaceEdit {
-            document_changes: Some(document_changes),
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
-}
-
-/// Extract the longest common path prefix (at segment boundaries, literal segments only).
-/// Stops at the first parameterized segment `{...}`. Returns "" when no common prefix exists.
-fn longest_common_literal_path_prefix(paths: &[&str]) -> String {
-    if paths.is_empty() {
-        return String::new();
-    }
-    let segments_per_path: Vec<Vec<&str>> = paths
-        .iter()
-        .map(|p| p.split('/').filter(|s| !s.is_empty()).collect())
-        .collect();
-    let min_len = segments_per_path.iter().map(|s| s.len()).min().unwrap_or(0);
-    let mut common: Vec<&str> = Vec::new();
-    for i in 0..min_len {
-        let seg = segments_per_path[0][i];
-        if seg.contains('{') {
-            break;
-        }
-        if segments_per_path.iter().all(|s| s.get(i) == Some(&seg)) {
-            common.push(seg);
-        } else {
-            break;
-        }
-    }
-    if common.is_empty() {
-        return String::new();
-    }
-    format!("/{}", common.join("/"))
-}
-
-/// Find the first decorator line (`@...`) before the handler def line, scanning backward.
-fn find_decorator_line(lines: &[&str], record: &crate::state::RouteRecord) -> Option<usize> {
-    let def_line = record.handler.range.start.line as usize;
-    (0..def_line).rev().find(|&i| {
-        lines
-            .get(i)
-            .is_some_and(|l| l.trim_start().starts_with('@'))
-    })
-}
-
-/// Find the decorator line that contains the path string at `path_range`.
-/// For single-line decorators the path line IS the decorator line; for multi-line, scan backward.
-fn find_decorator_line_for_path(lines: &[&str], path_range: Range) -> Option<usize> {
-    let path_line = path_range.start.line as usize;
-    if lines
-        .get(path_line)
-        .is_some_and(|l| l.trim_start().starts_with('@'))
-    {
-        return Some(path_line);
-    }
-    (0..path_line).rev().find(|&i| {
-        lines
-            .get(i)
-            .is_some_and(|l| l.trim_start().starts_with('@'))
-    })
-}
-
-/// Return the range of `object_name` in a decorator line `@{object_name}.method(...)`.
-fn find_object_range_in_decorator(line: &str, object_name: &str, line_num: u32) -> Option<Range> {
-    let at_pos = line.find('@')?;
-    let after_at = &line[at_pos + 1..];
-    if !after_at.starts_with(object_name) {
-        return None;
-    }
-    let next_idx = at_pos + 1 + object_name.len();
-    if !line
-        .get(next_idx..)
-        .is_some_and(|rest| rest.starts_with('.'))
-    {
-        return None;
-    }
-    Some(Range {
-        start: Position::new(line_num, (at_pos + 1) as u32),
-        end: Position::new(line_num, next_idx as u32),
-    })
-}
-
-/// Build the "Extract router with prefix" code action, or None when the gate conditions are not met.
-fn extract_router_action(
-    uri: &tower_lsp_server::ls_types::Uri,
-    cursor_range: Range,
-    facts: &crate::state::FileFacts,
-    linked: &crate::state::Linked,
-    state: &WorkspaceState,
-    _workspace_root: &PathBuf,
-    source: &str,
-) -> Option<CodeAction> {
-    let lines: Vec<&str> = source.lines().collect();
-
-    // Build object_name lookup from RouteFact (not carried through to RouteRecord)
-    let object_name_map: std::collections::HashMap<&str, &str> = facts
-        .routes
-        .iter()
-        .map(|rf| (rf.handler_name.as_str(), rf.object_name.as_str()))
-        .collect();
-
-    // Collect all include_router targets across the workspace so we can gate out routes
-    // that are already included (replacing the always-empty `chain` check from the old design)
-    let included_targets: std::collections::HashSet<String> = state
-        .file_facts
-        .iter()
-        .flat_map(|e| {
-            e.value()
-                .includes
-                .iter()
-                .flat_map(|inc| {
-                    let mut keys = vec![inc.target.clone()];
-                    // Also index the last dotted component (e.g. "books.router" → "router")
-                    if let Some(suffix) = inc.target.rsplit('.').next()
-                        && suffix != inc.target
-                    {
-                        keys.push(suffix.to_owned());
-                    }
-                    keys
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    // Candidate routes: same file, NOT already included elsewhere, resolved, with a path_range
-    let candidates: Vec<&crate::state::RouteRecord> = linked
-        .route_index
-        .values()
-        .flat_map(|v| v.iter())
-        .filter(|r| &r.handler.uri == uri)
-        .filter(|r| {
-            // RouteId format: "{uri}:{handler_name}:{method}" — uri may contain colons,
-            // so split from the right to get handler_name
-            let handler_name = r.id.0.rsplit(':').nth(1).unwrap_or("");
-            let obj_name = object_name_map
-                .get(handler_name)
-                .copied()
-                .unwrap_or(handler_name);
-            !included_targets.contains(obj_name)
-        })
-        .filter(|r| matches!(r.resolved_path, ResolvedPath::Resolved(_)))
-        .filter(|r| r.path_range.is_some())
-        .collect();
-
-    if candidates.len() < 2 {
-        return None;
-    }
-
-    // Find the handler the cursor is on
-    let cursor_record = candidates.iter().copied().find(|r| {
-        position_in_range(
-            cursor_range.start,
-            r.handler.range.start,
-            r.handler.range.end,
-        ) || position_in_range(cursor_range.end, r.handler.range.start, r.handler.range.end)
-    })?;
-
-    let cursor_obj = *object_name_map.get(cursor_record.name.as_str())?;
-
-    // Restrict to routes on the same object
-    let same_obj: Vec<&crate::state::RouteRecord> = candidates
-        .iter()
-        .copied()
-        .filter(|r| object_name_map.get(r.name.as_str()) == Some(&cursor_obj))
-        .collect();
-
-    if same_obj.len() < 2 {
-        return None;
-    }
-
-    // Compute LCP of all paths on this object
-    let all_paths: Vec<&str> = same_obj
-        .iter()
-        .filter_map(|r| match &r.resolved_path {
-            ResolvedPath::Resolved(p) => Some(p.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    let prefix = longest_common_literal_path_prefix(&all_paths);
-    if prefix.is_empty() {
-        return None;
-    }
-
-    // Group: routes whose resolved_path starts with prefix at a segment boundary.
-    // Use p.get() to avoid a panic when prefix.len() is not a valid char boundary.
-    let group: Vec<&crate::state::RouteRecord> = same_obj
-        .iter()
-        .copied()
-        .filter(|r| match &r.resolved_path {
-            ResolvedPath::Resolved(p) => {
-                p == &prefix
-                    || p.get(prefix.len()..)
-                        .is_some_and(|rest| rest.starts_with('/'))
-            }
-            _ => false,
-        })
-        .collect();
-
-    if group.len() < 2 {
-        return None;
-    }
-
-    // Pick router variable name (avoid "router" if already declared in this file)
-    let router_name: String = if facts.routers.iter().any(|r| r.name == "router") {
-        let last_seg = prefix
-            .rsplit('/')
-            .find(|s| !s.is_empty() && !s.contains('{'))
-            .unwrap_or("sub");
-        format!("{last_seg}_router")
-    } else {
-        "router".to_owned()
-    };
-
-    let needs_apirouter_import = !facts
-        .imported_names
-        .iter()
-        .any(|n| n == "APIRouter" || n == "*");
-
-    // Find first handler's decorator line for the insert position
-    let first_record = group.iter().min_by_key(|r| r.handler.range.start.line)?;
-    let first_deco_line = find_decorator_line(&lines, first_record)?;
-
-    // Build edits, highest line first (defensive ordering for non-compliant LSP clients)
-    let mut edits: Vec<
-        tower_lsp_server::ls_types::OneOf<TextEdit, tower_lsp_server::ls_types::AnnotatedTextEdit>,
-    > = Vec::new();
-
-    // Append include_router at end (highest effective line)
-    edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-        range: Range {
-            start: Position::new(APPEND_LINE, 0),
-            end: Position::new(APPEND_LINE, 0),
-        },
-        new_text: format!("\n{cursor_obj}.include_router({router_name})\n"),
-    }));
-
-    // Per-handler edits in reverse line order; deduplicate on path_range
-    let mut sorted_group = group.clone();
-    sorted_group.sort_by_key(|r| std::cmp::Reverse(r.handler.range.start.line));
-    let mut seen_path_ranges = std::collections::HashSet::<Range>::new();
-
-    for record in &sorted_group {
-        let path_range = record.path_range.unwrap();
-        if !seen_path_ranges.insert(path_range) {
-            continue;
-        }
-
-        let resolved = match &record.resolved_path {
-            ResolvedPath::Resolved(p) => p.as_str(),
-            _ => continue,
-        };
-        let stripped = resolved.get(prefix.len()..).unwrap_or("");
-        let new_path = format!("\"{stripped}\"");
-
-        // Edit: replace path string
-        edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-            range: path_range,
-            new_text: new_path,
-        }));
-
-        // Edit: replace object_name with router_name in decorator line.
-        // If the decorator line can't be found, the action would produce broken Python
-        // (path stripped but object not renamed) — abort the whole action.
-        let deco_line = find_decorator_line_for_path(&lines, path_range)?;
-        let deco_str = lines.get(deco_line)?;
-        let obj_range = find_object_range_in_decorator(deco_str, cursor_obj, deco_line as u32)?;
-        edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-            range: obj_range,
-            new_text: router_name.clone(),
-        }));
-    }
-
-    // Insert router declaration + optional APIRouter import before first decorator
-    let mut router_decl = String::new();
-    if needs_apirouter_import {
-        router_decl.push_str("from fastapi import APIRouter\n");
-    }
-    router_decl.push_str(&format!(
-        "{router_name} = APIRouter(prefix=\"{prefix}\")\n\n"
-    ));
-    edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-        range: Range {
-            start: Position::new(first_deco_line as u32, 0),
-            end: Position::new(first_deco_line as u32, 0),
-        },
-        new_text: router_decl,
-    }));
-
-    Some(CodeAction {
-        title: format!("Extract router with prefix `{prefix}`"),
-        kind: Some(CodeActionKind::REFACTOR_EXTRACT),
-        edit: Some(WorkspaceEdit {
-            document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
-                TextDocumentEdit {
-                    text_document: OptionalVersionedTextDocumentIdentifier {
-                        uri: uri.clone(),
-                        version: None,
-                    },
-                    edits,
-                },
-            ])),
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
 }
