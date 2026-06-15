@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tower_lsp_server::ls_types::Uri;
 
 use crate::state::{
-    ClientCallSite, DepGraph, EnvEntry, FileFacts, FStringSegment, IncludeCall, Linked, Location,
+    ClientCallSite, DepGraph, EnvEntry, FStringSegment, FileFacts, IncludeCall, Linked, Location,
     Method, MiddlewareCall, MwInit, MwKwarg, MwSource, NodeId, PathTrie, PrefixValue, ResolvedPath,
     RouteId, RouteRecord, RouterDecl, SettingsClassDecl, SettingsField, TrieNode, WorkspaceState,
 };
@@ -1664,7 +1664,11 @@ mod tests {
         RouteId(s.to_owned())
     }
 
-    fn make_route(id: &str, path: &str, method: crate::state::Method) -> (RouteId, Vec<RouteRecord>) {
+    fn make_route(
+        id: &str,
+        path: &str,
+        method: crate::state::Method,
+    ) -> (RouteId, Vec<RouteRecord>) {
         let route_id = rid(id);
         let record = RouteRecord {
             id: route_id.clone(),
@@ -2143,8 +2147,16 @@ mod tests {
     fn fstring_segments_match_books_authors_unambiguous() {
         // f"/api/books/{book_id}/authors/{author_id}" should match exactly one route.
         let mut index = HashMap::new();
-        let (id1, rec1) = make_route("get_author", "/api/books/{book_id}/authors/{author_id}", crate::state::Method::Get);
-        let (id2, rec2) = make_route("get_publisher", "/api/books/{book_id}/publishers/{pub_id}", crate::state::Method::Get);
+        let (id1, rec1) = make_route(
+            "get_author",
+            "/api/books/{book_id}/authors/{author_id}",
+            crate::state::Method::Get,
+        );
+        let (id2, rec2) = make_route(
+            "get_publisher",
+            "/api/books/{book_id}/publishers/{pub_id}",
+            crate::state::Method::Get,
+        );
         index.insert(id1.clone(), rec1);
         index.insert(id2, rec2);
 
@@ -2182,7 +2194,10 @@ mod tests {
 
         let segs = vec![flit("/files/"), FStringSegment::Wildcard];
         let matched = match_fstring_segments(&index, &segs, &crate::state::Method::Get);
-        assert!(matched.is_empty(), "wildcard must not match {{path:path}} route");
+        assert!(
+            matched.is_empty(),
+            "wildcard must not match {{path:path}} route"
+        );
     }
 
     #[test]

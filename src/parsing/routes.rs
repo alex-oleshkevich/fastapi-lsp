@@ -447,8 +447,14 @@ fn extract_assignment(
         "identifier" => node_text(src, lhs).to_owned(),
         "attribute" => {
             // Only handle `self.X` — other attribute assignments are too dynamic.
-            let obj = lhs.child_by_field_name("object").map(|n| node_text(src, n)).unwrap_or("");
-            let attr = lhs.child_by_field_name("attribute").map(|n| node_text(src, n)).unwrap_or("");
+            let obj = lhs
+                .child_by_field_name("object")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
+            let attr = lhs
+                .child_by_field_name("attribute")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
             if obj != "self" || attr.is_empty() {
                 return;
             }
@@ -1908,10 +1914,7 @@ class MyView:
     def __init__(self):
         self.router = APIRouter(prefix="/items")
 "#);
-        let router = facts
-            .routers
-            .iter()
-            .find(|r| r.name == "self.router");
+        let router = facts.routers.iter().find(|r| r.name == "self.router");
         assert!(
             router.is_some(),
             "self.router = APIRouter() must produce a RouterDecl with name 'self.router'"

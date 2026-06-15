@@ -878,7 +878,10 @@ mod tests {
     fn process_env_value_masked_when_show_false() {
         let e = process_entry("secret123");
         let md = super::env_entry_card("MY_VAR", Some(&e), false);
-        assert!(md.contains("••••••"), "process-env value should be masked when show=false");
+        assert!(
+            md.contains("••••••"),
+            "process-env value should be masked when show=false"
+        );
         assert!(!md.contains("secret123"));
     }
 
@@ -886,7 +889,10 @@ mod tests {
     fn process_env_value_shown_when_show_true() {
         let e = process_entry("secret123");
         let md = super::env_entry_card("MY_VAR", Some(&e), true);
-        assert!(md.contains("secret123"), "process-env value should be shown when show=true");
+        assert!(
+            md.contains("secret123"),
+            "process-env value should be shown when show=true"
+        );
         assert!(!md.contains("••••••"));
     }
 
@@ -895,7 +901,10 @@ mod tests {
         let e = file_entry("hello");
         let md_false = super::env_entry_card("MY_VAR", Some(&e), false);
         let md_true = super::env_entry_card("MY_VAR", Some(&e), true);
-        assert!(md_false.contains("hello"), "file-entry should always show value");
+        assert!(
+            md_false.contains("hello"),
+            "file-entry should always show value"
+        );
         assert!(md_true.contains("hello"));
     }
 
@@ -903,7 +912,10 @@ mod tests {
     fn secret_key_always_masked_regardless_of_show_flag() {
         let e = process_entry("topsecret");
         let md = super::env_entry_card("DATABASE_PASSWORD", Some(&e), true);
-        assert!(md.contains("••••••"), "secret key must be masked even when show=true");
+        assert!(
+            md.contains("••••••"),
+            "secret key must be masked even when show=true"
+        );
     }
 
     // ── include_hover ─────────────────────────────────────────────────────────

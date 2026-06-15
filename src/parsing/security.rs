@@ -1,7 +1,7 @@
+use tower_lsp_server::ls_types::{Position, Range};
 /// Extract OAuth2 security scheme sites — `tokenUrl` and `authorizationUrl` kwargs
 /// from calls to recognized OAuth2 classes (OAuth2PasswordBearer, etc.).
 use tree_sitter::{Node, Tree};
-use tower_lsp_server::ls_types::{Position, Range};
 
 use super::unquote;
 use crate::state::{FileFacts, SecuritySchemeSite, range_from_node};
@@ -120,8 +120,8 @@ fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parsing::parse_file;
     use crate::offset::Encoding;
+    use crate::parsing::parse_file;
 
     fn extract_sites(src: &str) -> Vec<SecuritySchemeSite> {
         let bytes = src.as_bytes();

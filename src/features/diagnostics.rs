@@ -226,9 +226,11 @@ pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<
     // oauth2/unknown-token-url (REQ-DIAG-21): tokenUrl/authorizationUrl references a missing route.
     if !has_unresolved_routes {
         for site in &facts.security_scheme_sites {
-            let matched = linked.route_index.values().flat_map(|records| records.iter()).any(
-                |r| matches!(&r.resolved_path, ResolvedPath::Resolved(p) if p == &site.path),
-            );
+            let matched = linked
+                .route_index
+                .values()
+                .flat_map(|records| records.iter())
+                .any(|r| matches!(&r.resolved_path, ResolvedPath::Resolved(p) if p == &site.path));
             if !matched {
                 diags.push(unknown_token_url_diag(&site.path, site.range));
             }
@@ -1171,7 +1173,9 @@ pub fn unknown_token_url_diag(path: &str, range: Range) -> Diagnostic {
     Diagnostic {
         range,
         severity: Some(DiagnosticSeverity::WARNING),
-        code: Some(NumberOrString::String("oauth2/unknown-token-url".to_owned())),
+        code: Some(NumberOrString::String(
+            "oauth2/unknown-token-url".to_owned(),
+        )),
         message: format!("no route matches OAuth2 URL `{path}`"),
         source: Some("fastapi-lsp".to_owned()),
         ..Default::default()

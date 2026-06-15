@@ -237,7 +237,11 @@ fn print_text_with_applied(
         }
         if color {
             let sev_color = severity_color(d.severity);
-            let fixed_marker = if is_fixed { " \x1b[32m[fixed]\x1b[0m" } else { "" };
+            let fixed_marker = if is_fixed {
+                " \x1b[32m[fixed]\x1b[0m"
+            } else {
+                ""
+            };
             println!(
                 "\x1b[1m{}\x1b[0m:{}:{}: {}{}\x1b[0m {}{}",
                 path,

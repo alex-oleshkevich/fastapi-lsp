@@ -30,21 +30,31 @@ pub fn collect_fixes(state: &WorkspaceState) -> Vec<FileFix> {
     let mut dep_params: HashMap<String, Vec<String>> = HashMap::new();
     for fe in state.file_facts.iter() {
         for d in &fe.dep_defs {
-            dep_params.entry(d.name.clone()).or_insert_with(|| d.param_names.clone());
+            dep_params
+                .entry(d.name.clone())
+                .or_insert_with(|| d.param_names.clone());
         }
     }
 
     for entry in state.file_facts.iter() {
         let uri = entry.key();
         let facts = entry.value();
-        let Some(path) = uri_to_path(uri) else { continue };
+        let Some(path) = uri_to_path(uri) else {
+            continue;
+        };
         let uri_str = uri.as_str().to_owned();
 
         // di/depends-called: replace callee `fn()` with `fn` inside Depends(...)
         for dep_ref in &facts.dep_refs {
-            if !dep_ref.is_called { continue; }
-            if !linked.proven_dep_names.contains(dep_ref.name.as_str()) { continue; }
-            let Some(callee_range) = dep_ref.callee_range else { continue };
+            if !dep_ref.is_called {
+                continue;
+            }
+            if !linked.proven_dep_names.contains(dep_ref.name.as_str()) {
+                continue;
+            }
+            let Some(callee_range) = dep_ref.callee_range else {
+                continue;
+            };
             fixes.push(FileFix {
                 uri: uri_str.clone(),
                 diag_range: dep_ref.range,
@@ -62,9 +72,15 @@ pub fn collect_fixes(state: &WorkspaceState) -> Vec<FileFix> {
             .filter(|r| &r.handler.uri == uri)
             .filter(|r| matches!(r.resolved_path, ResolvedPath::Resolved(_)))
         {
-            if !record.handler_params_known || record.handler_has_splat_args { continue; }
-            if record.path_params.is_empty() { continue; }
-            if record.handler_param_ranges.len() != record.handler_params.len() { continue; }
+            if !record.handler_params_known || record.handler_has_splat_args {
+                continue;
+            }
+            if record.path_params.is_empty() {
+                continue;
+            }
+            if record.handler_param_ranges.len() != record.handler_params.len() {
+                continue;
+            }
 
             let mut bound: HashSet<String> = record.handler_params.iter().cloned().collect();
             for dep_name in &record.dependencies {
@@ -79,7 +95,9 @@ pub fn collect_fixes(state: &WorkspaceState) -> Vec<FileFix> {
                 .filter(|p| !bound.contains(&p.name))
                 .map(|p| p.name.as_str())
                 .collect();
-            if unbound_path_params.len() != 1 { continue; }
+            if unbound_path_params.len() != 1 {
+                continue;
+            }
             let target_param = unbound_path_params[0];
 
             let dep_contributed: HashSet<&str> = record
@@ -101,7 +119,9 @@ pub fn collect_fixes(state: &WorkspaceState) -> Vec<FileFix> {
                 {
                     continue;
                 }
-                if edit_distance(handler_param, target_param) > 2 { continue; }
+                if edit_distance(handler_param, target_param) > 2 {
+                    continue;
+                }
                 let hp_range = record
                     .handler_param_ranges
                     .get(idx)
@@ -213,8 +233,14 @@ mod tests {
         let path = dir.path().join("test.py");
         std::fs::write(&path, b"ab\ncd\n").unwrap();
 
-        let r1 = Range { start: Position::new(0, 0), end: Position::new(0, 2) };
-        let r2 = Range { start: Position::new(1, 0), end: Position::new(1, 2) };
+        let r1 = Range {
+            start: Position::new(0, 0),
+            end: Position::new(0, 2),
+        };
+        let r2 = Range {
+            start: Position::new(1, 0),
+            end: Position::new(1, 2),
+        };
         // Apply both; order in input is top-down but should be applied bottom-up
         apply_fixes_to_file(&path, &[(r1, "XX".to_owned()), (r2, "YY".to_owned())]).unwrap();
         let result = std::fs::read_to_string(&path).unwrap();

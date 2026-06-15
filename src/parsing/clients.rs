@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use super::unquote;
-use crate::state::{ClientCall, FileFacts, FStringSegment, Method, range_from_node};
+use crate::state::{ClientCall, FStringSegment, FileFacts, Method, range_from_node};
 use tower_lsp_server::ls_types::{Position, Range};
 
 pub fn extract(
@@ -224,7 +224,13 @@ fn first_arg_path(
     src: &[u8],
     args: Node<'_>,
     enc: crate::offset::Encoding,
-) -> Option<(String, Range, bool, Option<usize>, Option<Vec<FStringSegment>>)> {
+) -> Option<(
+    String,
+    Range,
+    bool,
+    Option<usize>,
+    Option<Vec<FStringSegment>>,
+)> {
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
         match child.kind() {
@@ -249,7 +255,13 @@ fn extract_path_from_string(
     src: &[u8],
     node: Node<'_>,
     enc: crate::offset::Encoding,
-) -> Option<(String, Range, bool, Option<usize>, Option<Vec<FStringSegment>>)> {
+) -> Option<(
+    String,
+    Range,
+    bool,
+    Option<usize>,
+    Option<Vec<FStringSegment>>,
+)> {
     // Detect f-string by presence of an `interpolation` child node.
     let has_interpolation = {
         let mut c = node.walk();
@@ -891,7 +903,10 @@ other.post('/b')
         assert_eq!(facts.client_calls.len(), 1);
         let call = &facts.client_calls[0];
         assert!(call.is_prefix);
-        let segs = call.fstring_segments.as_ref().expect("fstring_segments must be set for f-strings");
+        let segs = call
+            .fstring_segments
+            .as_ref()
+            .expect("fstring_segments must be set for f-strings");
         assert_eq!(
             segs,
             &[
