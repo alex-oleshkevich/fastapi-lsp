@@ -118,13 +118,21 @@ async def test_env_undefined_key(client_diag: pytest_lsp.LanguageClient):
 
 
 async def test_route_duplicate_name(client_diag: pytest_lsp.LanguageClient):
-    """route/duplicate-name: two routes share the same name kwarg."""
+    """route/duplicate-name: two routes share the same name kwarg.
+
+    The later-registered route gets Warning; the earlier one gets Hint.
+    Both share code route/duplicate-name; look for the Warning variant.
+    """
     uri = _open(client_diag, DIAG_APP)
     diags = await wait_for_diagnostics(client_diag, uri)
-    d = _find_diag(diags, "route/duplicate-name")
-    assert d is not None, f"expected route/duplicate-name, got: {[x.code for x in diags]}"
-    assert d.severity == types.DiagnosticSeverity.Warning
-    assert "shared_name" in d.message
+    warnings = [
+        d for d in diags
+        if isinstance(d.code, str)
+        and d.code == "route/duplicate-name"
+        and d.severity == types.DiagnosticSeverity.Warning
+    ]
+    assert warnings, f"expected route/duplicate-name Warning, got: {[(x.code, x.severity) for x in diags]}"
+    assert "shared_name" in warnings[0].message
 
 
 async def test_route_shadowed(client_diag: pytest_lsp.LanguageClient):

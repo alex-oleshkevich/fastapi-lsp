@@ -28,6 +28,12 @@ def route_bar():
     return {}
 
 
+# Triggers route/duplicate-name: shared_name is actually used in url_for
+@app.get("/dup-name-trigger")
+def dup_name_trigger(request: Request):
+    return {"url": str(request.url_for("shared_name"))}
+
+
 # route/shadowed: /{id} declared before /featured makes /featured unreachable
 @router_b.get("/{id}")
 def get_by_id(id: str):
