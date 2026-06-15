@@ -20,11 +20,8 @@ pub async fn run(args: RoutesArgs) -> i32 {
     linking::relink(&state).await;
 
     let linked = state.linked.load();
-    let mut records: Vec<&RouteRecord> = linked
-        .route_index
-        .values()
-        .flat_map(|v| v.iter())
-        .collect();
+    let mut records: Vec<&RouteRecord> =
+        linked.route_index.values().flat_map(|v| v.iter()).collect();
 
     records.sort_by(|a, b| a.ordinal.cmp(&b.ordinal).then_with(|| a.name.cmp(&b.name)));
 
@@ -152,7 +149,14 @@ mod tests {
 
     #[test]
     fn json_output_has_required_fields() {
-        let r = make_record(0, Method::Delete, "/items/{id}", "delete_item", "/app/main.py", 5);
+        let r = make_record(
+            0,
+            Method::Delete,
+            "/items/{id}",
+            "delete_item",
+            "/app/main.py",
+            5,
+        );
         let obj = serde_json::json!({
             "method": format!("{}", r.method),
             "path": display_path(&r),

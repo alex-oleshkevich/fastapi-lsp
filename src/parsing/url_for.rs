@@ -2,9 +2,9 @@
 /// These are the primary consumer of the route_names index (REQ-ROUTE-11).
 use tree_sitter::{Node, Tree};
 
-use tower_lsp_server::ls_types::{Position, Range};
-use crate::state::{FileFacts, UrlForSite, range_from_node};
 use super::unquote;
+use crate::state::{FileFacts, UrlForSite, range_from_node};
+use tower_lsp_server::ls_types::{Position, Range};
 
 const URL_FOR_METHODS: &[&str] = &["url_for", "url_path_for"];
 
@@ -84,13 +84,25 @@ fn first_string_arg_with_range(
     None
 }
 
-fn string_content_range(node: Node<'_>, raw: &str, src: &[u8], enc: crate::offset::Encoding) -> Range {
+fn string_content_range(
+    node: Node<'_>,
+    raw: &str,
+    src: &[u8],
+    enc: crate::offset::Encoding,
+) -> Range {
     let base = range_from_node(node, src, enc);
     let no_prefix = raw.trim_start_matches(['r', 'b', 'R', 'B', 'f', 'F']);
     let prefix_extra = (raw.len() - no_prefix.len()) as u32;
-    let quote_len: u32 = if no_prefix.starts_with("\"\"\"") || no_prefix.starts_with("'''") { 3 } else { 1 };
+    let quote_len: u32 = if no_prefix.starts_with("\"\"\"") || no_prefix.starts_with("'''") {
+        3
+    } else {
+        1
+    };
     Range {
-        start: Position::new(base.start.line, base.start.character + prefix_extra + quote_len),
+        start: Position::new(
+            base.start.line,
+            base.start.character + prefix_extra + quote_len,
+        ),
         end: Position::new(base.end.line, base.end.character - quote_len),
     }
 }
@@ -104,9 +116,10 @@ fn collect_kwarg_names(src: &[u8], args: Node<'_>) -> (Vec<String>, bool) {
             has_splat = true;
         } else if child.kind() == "keyword_argument"
             && let Some(key) = child.child(0)
-                && key.kind() == "identifier" {
-                    names.push(node_text(src, key).to_owned());
-                }
+            && key.kind() == "identifier"
+        {
+            names.push(node_text(src, key).to_owned());
+        }
     }
     (names, has_splat)
 }

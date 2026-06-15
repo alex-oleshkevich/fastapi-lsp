@@ -10,22 +10,48 @@ use crate::state::{NodeId, ResolvedPath, RouteRecord, WorkspaceState};
 /// Built-in env keys that are never flagged as undefined (REQ-ENV-06 allowlist).
 static OS_CI_ALLOWLIST: &[&str] = &[
     // POSIX / common OS
-    "HOME", "PATH", "USER", "PORT", "HOSTNAME", "PWD", "SHELL", "TERM", "TMPDIR",
-    "LANG", "LC_ALL", "TZ",
+    "HOME",
+    "PATH",
+    "USER",
+    "PORT",
+    "HOSTNAME",
+    "PWD",
+    "SHELL",
+    "TERM",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "TZ",
     // GitHub Actions
-    "CI", "GITHUB_ACTIONS", "GITHUB_TOKEN", "GITHUB_SHA", "GITHUB_REF",
-    "GITHUB_RUN_ID", "GITHUB_RUN_NUMBER", "GITHUB_WORKSPACE", "GITHUB_ACTOR",
-    "GITHUB_REPOSITORY", "GITHUB_EVENT_NAME",
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITHUB_TOKEN",
+    "GITHUB_SHA",
+    "GITHUB_REF",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_NUMBER",
+    "GITHUB_WORKSPACE",
+    "GITHUB_ACTOR",
+    "GITHUB_REPOSITORY",
+    "GITHUB_EVENT_NAME",
     // GitLab CI
-    "GITLAB_CI", "CI_JOB_TOKEN", "CI_COMMIT_SHA", "CI_PROJECT_ID",
+    "GITLAB_CI",
+    "CI_JOB_TOKEN",
+    "CI_COMMIT_SHA",
+    "CI_PROJECT_ID",
     // CircleCI
-    "CIRCLECI", "CIRCLE_SHA1", "CIRCLE_BRANCH",
+    "CIRCLECI",
+    "CIRCLE_SHA1",
+    "CIRCLE_BRANCH",
     // Travis
-    "TRAVIS", "TRAVIS_COMMIT", "TRAVIS_BRANCH",
+    "TRAVIS",
+    "TRAVIS_COMMIT",
+    "TRAVIS_BRANCH",
     // Docker / container
     "DOCKER_HOST",
     // Python
-    "PYTHONPATH", "DJANGO_SETTINGS_MODULE",
+    "PYTHONPATH",
+    "DJANGO_SETTINGS_MODULE",
 ];
 
 /// Returns true when `key` should be suppressed (OS/CI built-in or user-ignored).
@@ -118,17 +144,25 @@ pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<
 
     // Cross-route checks: duplicate, shadowed, duplicate-name (REQ-DIAG-05/07/08)
     // Also used as the gate for url/unknown-name and route/router-not-included (REQ-DIAG-06/08).
-    let has_unresolved_routes = linked
-        .route_index
-        .values()
-        .any(|records| records.iter().any(|r| matches!(r.resolved_path, ResolvedPath::Unresolved)));
-    diags.extend(cross_route_diags(state, uri, &linked, has_unresolved_routes));
+    let has_unresolved_routes = linked.route_index.values().any(|records| {
+        records
+            .iter()
+            .any(|r| matches!(r.resolved_path, ResolvedPath::Unresolved))
+    });
+    diags.extend(cross_route_diags(
+        state,
+        uri,
+        &linked,
+        has_unresolved_routes,
+    ));
 
     // route/param-missing-arg + route/arg-missing-param (REQ-DIAG-03/04)
     diags.extend(route_param_checks(state, uri, &linked));
 
     // model/unknown-response-model (REQ-DIAG: catalog §3.2)
-    diags.extend(model_unknown_response_model_checks(state, uri, &linked, &facts));
+    diags.extend(model_unknown_response_model_checks(
+        state, uri, &linked, &facts,
+    ));
 
     // tpl/missing-template (REQ-TPL-05): gated on index being non-empty (P4).
     // An empty index means either no roots are configured or the initial scan hasn't finished —
@@ -139,7 +173,9 @@ pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<
             if linked.template_index.contains_key(&tpl.path) {
                 continue;
             }
-            let suggestion = index_keys.iter().copied()
+            let suggestion = index_keys
+                .iter()
+                .copied()
                 .filter(|k| edit_distance(k, &tpl.path) <= 2)
                 .min_by_key(|k| edit_distance(k, &tpl.path));
             diags.push(missing_template_diag(&tpl.path, suggestion, tpl.range));
@@ -164,12 +200,12 @@ pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<
                 }
                 // Compare against the first fully-resolved non-mount route record for this name.
                 // Mount routes are excluded — their param signature is not statically known (P4).
-                let record = route_ids
-                    .iter()
-                    .find_map(|id| linked.route_index.get(id)?.iter().find(|r| {
+                let record = route_ids.iter().find_map(|id| {
+                    linked.route_index.get(id)?.iter().find(|r| {
                         matches!(r.resolved_path, ResolvedPath::Resolved(_))
                             && r.method != crate::state::Method::Mount
-                    }));
+                    })
+                });
                 if let Some(record) = record {
                     let expected: HashSet<&str> =
                         record.path_params.iter().map(|p| p.name.as_str()).collect();
@@ -179,10 +215,7 @@ pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<
                     let extra: Vec<&str> = provided.difference(&expected).copied().collect();
                     if !missing.is_empty() || !extra.is_empty() {
                         diags.push(url_param_mismatch_diag(
-                            &site.name,
-                            &missing,
-                            &extra,
-                            site.range,
+                            &site.name, &missing, &extra, site.range,
                         ));
                     }
                 }
@@ -217,7 +250,8 @@ fn di_cycle_diags_for_member(
     let message = format!("Dependency cycle: {cycle_path}.");
 
     // Find the dep_refs inside this function whose target is the next member in the cycle.
-    let next_in_cycle: HashSet<String> = cycle.iter()
+    let next_in_cycle: HashSet<String> = cycle
+        .iter()
         .filter_map(|id| dep_node_name(id, state))
         .collect();
 
@@ -229,13 +263,17 @@ fn di_cycle_diags_for_member(
             continue;
         }
         // Build relatedInformation: locations of other cycle members' def sites
-        let related = cycle.iter()
+        let related = cycle
+            .iter()
             .filter(|id| dep_node_name(id, state).as_deref() != Some(member_func))
             .filter_map(|id| {
                 let name = dep_node_name(id, state)?;
                 let msg = format!("also in cycle: {name}");
                 Some(DiagnosticRelatedInformation {
-                    location: Location { uri: id.uri.clone(), range: id.range },
+                    location: Location {
+                        uri: id.uri.clone(),
+                        range: id.range,
+                    },
                     message: msg,
                 })
             })
@@ -249,17 +287,22 @@ fn di_cycle_diags_for_member(
 /// Look up the display name for a dep NodeId by searching dep_defs across all files.
 fn dep_node_name(id: &NodeId, state: &WorkspaceState) -> Option<String> {
     let facts = state.file_facts.get(&id.uri)?;
-    facts.dep_defs.iter()
+    facts
+        .dep_defs
+        .iter()
         .find(|d| d.node_id == *id)
         .map(|d| d.name.clone())
 }
 
 fn cycle_node_names(cycle: &[NodeId], state: &WorkspaceState) -> Vec<String> {
-    cycle.iter()
+    cycle
+        .iter()
         .filter_map(|id| {
             let facts = state.file_facts.get(&id.uri)?;
-            
-            facts.dep_defs.iter()
+
+            facts
+                .dep_defs
+                .iter()
                 .find(|d| d.node_id == *id)
                 .map(|d| d.name.clone())
         })
@@ -278,7 +321,11 @@ pub fn di_cycle_diag(
         code: Some(NumberOrString::String("di/cycle".to_owned())),
         source: Some("fastapi-lsp".to_owned()),
         message: message.to_owned(),
-        related_information: if related.is_empty() { None } else { Some(related) },
+        related_information: if related.is_empty() {
+            None
+        } else {
+            Some(related)
+        },
         ..Default::default()
     }
 }
@@ -351,7 +398,9 @@ fn cross_route_diags(
     // Per-router gate: only suppress for routers whose name matches an unresolved include
     // target (i.e., something tried to include it but we couldn't resolve the file).
     let unresolved_include_targets: std::collections::HashSet<String> = if has_unresolved_routes {
-        let all_known: std::collections::HashSet<String> = state.file_facts.iter()
+        let all_known: std::collections::HashSet<String> = state
+            .file_facts
+            .iter()
             .flat_map(|e| {
                 let v = e.value();
                 let r: Vec<String> = v.routers.iter().map(|r| r.name.clone()).collect();
@@ -359,15 +408,23 @@ fn cross_route_diags(
                 r.into_iter().chain(a)
             })
             .collect();
-        state.file_facts.iter()
+        state
+            .file_facts
+            .iter()
             .flat_map(|e| {
                 let facts = e.value();
-                facts.includes.iter()
+                facts
+                    .includes
+                    .iter()
                     .filter_map(|inc| {
-                        if all_known.contains(&inc.target) { return None; }
+                        if all_known.contains(&inc.target) {
+                            return None;
+                        }
                         // Resolve alias: `from X import router as projects_router` → "router"
                         if let Some(original) = facts.import_alias_originals.get(&inc.target) {
-                            if all_known.contains(original) { return None; }
+                            if all_known.contains(original) {
+                                return None;
+                            }
                         }
                         Some(inc.target.clone())
                     })
@@ -383,9 +440,9 @@ fn cross_route_diags(
             continue;
         }
         for router in &file_entry.routers {
-            let suppressed = unresolved_include_targets.iter().any(|t| {
-                t == &router.name || t.ends_with(&format!(".{}", router.name))
-            });
+            let suppressed = unresolved_include_targets
+                .iter()
+                .any(|t| t == &router.name || t.ends_with(&format!(".{}", router.name)));
             if suppressed {
                 continue;
             }
@@ -393,7 +450,8 @@ fn cross_route_diags(
                 let facts = e.value();
                 facts.includes.iter().any(|inc| {
                     // Resolve alias to original name for comparison
-                    let resolved = facts.import_alias_originals
+                    let resolved = facts
+                        .import_alias_originals
                         .get(&inc.target)
                         .map(|s| s.as_str())
                         .unwrap_or(inc.target.as_str());
@@ -430,7 +488,10 @@ fn cross_route_diags(
             diags.push(route_duplicate_diag(
                 record.handler.range,
                 &format!("{} {}", method, path_str(record)),
-                Location { uri: other.handler.uri.clone(), range: other.handler.range },
+                Location {
+                    uri: other.handler.uri.clone(),
+                    range: other.handler.range,
+                },
             ));
         }
     }
@@ -448,7 +509,9 @@ fn cross_route_diags(
         let shadower = all_records.iter().find(|other| {
             other.ordinal < record.ordinal
                 && other.method == record.method
-                && path_segments(path_str(other)).iter().any(|s| is_param_segment(s))
+                && path_segments(path_str(other))
+                    .iter()
+                    .any(|s| is_param_segment(s))
                 && literal_route_shadowed_by(path_str(record), path_str(other))
         });
         if let Some(other) = shadower {
@@ -456,7 +519,10 @@ fn cross_route_diags(
                 record.handler.range,
                 path_str(record),
                 path_str(other),
-                Location { uri: other.handler.uri.clone(), range: other.handler.range },
+                Location {
+                    uri: other.handler.uri.clone(),
+                    range: other.handler.range,
+                },
             ));
         }
     }
@@ -466,8 +532,16 @@ fn cross_route_diags(
     // Only actionable when the name is actually used in a url_for / url_path_for call —
     // if nobody calls url_for('name'), a duplicate name is harmless.
     // The later-registered route (higher ordinal) gets WARNING; the earlier gets HINT.
-    let url_for_used_names: std::collections::HashSet<String> = state.file_facts.iter()
-        .flat_map(|e| e.value().url_for_sites.iter().map(|s| s.name.clone()).collect::<Vec<_>>())
+    let url_for_used_names: std::collections::HashSet<String> = state
+        .file_facts
+        .iter()
+        .flat_map(|e| {
+            e.value()
+                .url_for_sites
+                .iter()
+                .map(|s| s.name.clone())
+                .collect::<Vec<_>>()
+        })
         .collect();
 
     for record in &file_records {
@@ -483,7 +557,10 @@ fn cross_route_diags(
                     || other.handler.range != record.handler.range)
         });
         if let Some(other) = other_handler {
-            let other_loc = Location { uri: other.handler.uri.clone(), range: other.handler.range };
+            let other_loc = Location {
+                uri: other.handler.uri.clone(),
+                range: other.handler.range,
+            };
             if record.ordinal >= other.ordinal {
                 diags.push(route_duplicate_name_diag(
                     record.handler.range,
@@ -515,7 +592,11 @@ fn path_str(record: &RouteRecord) -> &str {
 fn normalize_path(path: &str) -> String {
     path.split('/')
         .map(|seg| {
-            if seg.starts_with('{') && seg.ends_with('}') { "{}" } else { seg }
+            if seg.starts_with('{') && seg.ends_with('}') {
+                "{}"
+            } else {
+                seg
+            }
         })
         .collect::<Vec<_>>()
         .join("/")
@@ -568,7 +649,11 @@ fn converter_accepts(param_seg: &str, literal: &str) -> bool {
 fn parse_depends_fn_name(text: &str) -> Option<String> {
     let inner = text.trim().strip_prefix("Depends(")?.strip_suffix(')')?;
     let name = inner.trim();
-    if name.is_empty() { None } else { Some(name.to_owned()) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_owned())
+    }
 }
 
 /// Compute `route/param-missing-arg` and `route/arg-missing-param` diagnostics for routes
@@ -583,7 +668,8 @@ fn route_param_checks(
     // Build a cross-file map: containing_func → Vec<dep_fn_name> from all annotated_params.
     // Used for BFS through nested Depends() chains.
     let sig_deps_map: std::collections::HashMap<String, Vec<String>> = {
-        let mut m: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut m: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
         for entry in state.file_facts.iter() {
             for ap in &entry.value().annotated_params {
                 if let Some(dep) = parse_depends_fn_name(&ap.depends_text) {
@@ -609,7 +695,8 @@ fn route_param_checks(
     // Build per-func plain_typed_params lookup: func_name → Vec<type_name>.
     // Populated from handler params like `project: CurrentProject` (plain identifier types).
     let all_plain_typed: std::collections::HashMap<String, Vec<String>> = {
-        let mut m: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut m: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
         for entry in state.file_facts.iter() {
             for ptp in &entry.value().plain_typed_params {
                 m.entry(ptp.containing_func.clone())
@@ -654,7 +741,11 @@ fn route_param_checks(
             let uri_str = record.handler.uri.as_str();
             if let Some(rest) = id_str.strip_prefix(uri_str) {
                 let trimmed = rest.trim_start_matches(':');
-                if let Some(pos) = trimmed.rfind(':') { &trimmed[..pos] } else { trimmed }
+                if let Some(pos) = trimmed.rfind(':') {
+                    &trimmed[..pos]
+                } else {
+                    trimmed
+                }
             } else {
                 &record.name
             }
@@ -707,7 +798,11 @@ fn route_param_checks(
             .dependencies
             .iter()
             .flat_map(|dep_name| {
-                linked.dep_params.get(dep_name).into_iter().flat_map(|v| v.iter().map(|s| s.as_str()))
+                linked
+                    .dep_params
+                    .get(dep_name)
+                    .into_iter()
+                    .flat_map(|v| v.iter().map(|s| s.as_str()))
             })
             .collect();
         let unbound_handler_params: Vec<&str> = record
@@ -724,7 +819,11 @@ fn route_param_checks(
             for &handler_param in &unbound_handler_params {
                 if edit_distance(handler_param, &path_param.name) <= 2 {
                     let range = handler_param_range(record, handler_param);
-                    diags.push(arg_missing_param_diag(handler_param, &path_param.name, range));
+                    diags.push(arg_missing_param_diag(
+                        handler_param,
+                        &path_param.name,
+                        range,
+                    ));
                     break;
                 }
             }
@@ -788,7 +887,13 @@ fn model_unknown_response_model_checks(
 /// Keyed on (start_line, start_character, message) — same position + same text = same diagnostic.
 fn dedup_diags(mut diags: Vec<Diagnostic>) -> Vec<Diagnostic> {
     let mut seen = HashSet::new();
-    diags.retain(|d| seen.insert((d.range.start.line, d.range.start.character, d.message.clone())));
+    diags.retain(|d| {
+        seen.insert((
+            d.range.start.line,
+            d.range.start.character,
+            d.message.clone(),
+        ))
+    });
     diags
 }
 
@@ -796,7 +901,9 @@ pub fn unknown_response_model_diag(model_name: &str, range: Range) -> Diagnostic
     Diagnostic {
         range,
         severity: Some(DiagnosticSeverity::HINT),
-        code: Some(NumberOrString::String("model/unknown-response-model".to_owned())),
+        code: Some(NumberOrString::String(
+            "model/unknown-response-model".to_owned(),
+        )),
         source: Some("fastapi-lsp".to_owned()),
         message: format!("Unknown response model: {model_name}."),
         ..Default::default()
@@ -819,7 +926,10 @@ pub fn param_segment_range(record: &crate::state::RouteRecord, param_name: &str)
         (pos, pos + needle_exact.len())
     } else if let Some(pos) = path.find(&needle_colon) {
         // {name:converter} — find closing brace
-        let end = path[pos..].find('}').map(|i| pos + i + 1).unwrap_or(pos + needle_colon.len());
+        let end = path[pos..]
+            .find('}')
+            .map(|i| pos + i + 1)
+            .unwrap_or(pos + needle_colon.len());
         (pos, end)
     } else {
         return path_range;
@@ -891,16 +1001,14 @@ pub fn arg_missing_param_diag(handler_param: &str, path_param: &str, range: Rang
         severity: Some(DiagnosticSeverity::HINT),
         code: Some(NumberOrString::String("route/arg-missing-param".to_owned())),
         source: Some("fastapi-lsp".to_owned()),
-        message: format!("Handler parameter not in path: {handler_param}. Did you mean {{{path_param}}}?"),
+        message: format!(
+            "Handler parameter not in path: {handler_param}. Did you mean {{{path_param}}}?"
+        ),
         ..Default::default()
     }
 }
 
-pub fn route_duplicate_diag(
-    range: Range,
-    pattern: &str,
-    related_loc: Location,
-) -> Diagnostic {
+pub fn route_duplicate_diag(range: Range, pattern: &str, related_loc: Location) -> Diagnostic {
     Diagnostic {
         range,
         severity: Some(DiagnosticSeverity::WARNING),
@@ -970,7 +1078,9 @@ pub fn router_not_included_diag(name: &str, range: Range) -> Diagnostic {
     Diagnostic {
         range,
         severity: Some(DiagnosticSeverity::WARNING),
-        code: Some(NumberOrString::String("route/router-not-included".to_owned())),
+        code: Some(NumberOrString::String(
+            "route/router-not-included".to_owned(),
+        )),
         source: Some("fastapi-lsp".to_owned()),
         message: format!("Router not included: {name}."),
         tags: Some(vec![DiagnosticTag::UNNECESSARY]),
@@ -1016,7 +1126,9 @@ pub fn settings_missing_env_diag(key: &str, range: Range) -> Diagnostic {
     Diagnostic {
         range,
         severity: Some(DiagnosticSeverity::WARNING),
-        code: Some(NumberOrString::String("settings/env-key-missing".to_owned())),
+        code: Some(NumberOrString::String(
+            "settings/env-key-missing".to_owned(),
+        )),
         source: Some("fastapi-lsp".to_owned()),
         message: format!("Required env key undeclared: {key}."),
         ..Default::default()
@@ -1040,12 +1152,12 @@ pub fn missing_template_diag(path: &str, suggestion: Option<&str>, range: Range)
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
     use crate::state::{
-        FileFacts, Linked, Method, PathConverter, PathParam, RouteId, WorkspaceState,
-        Location as StateLocation,
+        FileFacts, Linked, Location as StateLocation, Method, PathConverter, PathParam, RouteId,
+        WorkspaceState,
     };
+    use std::sync::Arc;
 
     #[test]
     fn allowlist_contains_common_vars() {
@@ -1066,7 +1178,10 @@ mod tests {
         assert_eq!(d.severity, Some(DiagnosticSeverity::INFORMATION));
         assert!(d.message.contains("APP_TIMEOUT"));
         assert!(d.message.contains("Undefined env key"));
-        assert_eq!(d.code, Some(NumberOrString::String("env/undefined-key".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("env/undefined-key".to_owned()))
+        );
     }
 
     #[test]
@@ -1109,9 +1224,17 @@ mod tests {
     #[test]
     fn di_cycle_diag_properties() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(1, 4), end: Position::new(1, 20) };
+        let range = Range {
+            start: Position::new(1, 4),
+            end: Position::new(1, 20),
+        };
         let uri: Uri = "file:///a.py".parse().unwrap();
-        let d = di_cycle_diag(range, "dependency cycle: get_a → get_b → get_a", vec![], uri);
+        let d = di_cycle_diag(
+            range,
+            "dependency cycle: get_a → get_b → get_a",
+            vec![],
+            uri,
+        );
         assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
         assert_eq!(d.code, Some(NumberOrString::String("di/cycle".to_owned())));
         assert_eq!(d.source.as_deref(), Some("fastapi-lsp"));
@@ -1128,7 +1251,10 @@ mod tests {
         let d = depends_called_diag(range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
         assert_eq!(d.source.as_deref(), Some("fastapi-lsp"));
-        assert_eq!(d.code, Some(NumberOrString::String("di/depends-called".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("di/depends-called".to_owned()))
+        );
         assert!(d.message.contains("remove ()"));
     }
 
@@ -1142,7 +1268,10 @@ mod tests {
         let d = override_unused_diag("old_get_db", range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::INFORMATION));
         assert_eq!(d.source.as_deref(), Some("fastapi-lsp"));
-        assert_eq!(d.code, Some(NumberOrString::String("di/override-unused".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("di/override-unused".to_owned()))
+        );
         assert!(d.message.contains("old_get_db"));
         assert!(d.message.contains("Unused dependency override"));
     }
@@ -1150,10 +1279,16 @@ mod tests {
     #[test]
     fn url_unknown_name_diag_properties() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(5, 20), end: Position::new(5, 36) };
+        let range = Range {
+            start: Position::new(5, 20),
+            end: Position::new(5, 36),
+        };
         let d = url_unknown_name_diag("get_nosuchroute", range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("url/unknown-name".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("url/unknown-name".to_owned()))
+        );
         assert_eq!(d.source.as_deref(), Some("fastapi-lsp"));
         assert!(d.message.contains("get_nosuchroute"));
         assert!(d.message.contains("Unknown route name"));
@@ -1162,10 +1297,16 @@ mod tests {
     #[test]
     fn url_param_mismatch_missing_param() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(6, 10), end: Position::new(6, 30) };
+        let range = Range {
+            start: Position::new(6, 10),
+            end: Position::new(6, 30),
+        };
         let d = url_param_mismatch_diag("get_book", &["book_id"], &[], range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("url/param-mismatch".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("url/param-mismatch".to_owned()))
+        );
         assert!(d.message.contains("get_book"));
         assert!(d.message.contains("book_id"));
         assert!(d.message.contains("missing"));
@@ -1174,7 +1315,10 @@ mod tests {
     #[test]
     fn url_param_mismatch_extra_kwarg() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(7, 4), end: Position::new(7, 24) };
+        let range = Range {
+            start: Position::new(7, 4),
+            end: Position::new(7, 24),
+        };
         let d = url_param_mismatch_diag("list_books", &[], &["author_id"], range);
         assert!(d.message.contains("extra"));
         assert!(d.message.contains("author_id"));
@@ -1182,13 +1326,13 @@ mod tests {
 
     #[test]
     fn url_unknown_name_suppressed_when_routes_unresolved() {
-        use std::sync::Arc;
-        use tower_lsp_server::ls_types::{Position, Uri};
         use crate::config::ResolvedConfig;
         use crate::state::{
             FileFacts, Linked, Location as StateLocation, Method, ResolvedPath, RouteId,
             RouteRecord, UrlForSite,
         };
+        use std::sync::Arc;
+        use tower_lsp_server::ls_types::{Position, Uri};
 
         let uri: Uri = "file:///app/main.py".parse().unwrap();
         let uri2: Uri = "file:///app/router.py".parse().unwrap();
@@ -1198,59 +1342,72 @@ mod tests {
             name: "some_route".to_owned(),
             kwarg_names: vec![],
             has_splat_kwargs: false,
-            range: Range { start: Position::new(3, 10), end: Position::new(3, 22) },
+            range: Range {
+                start: Position::new(3, 10),
+                end: Position::new(3, 22),
+            },
             name_range: None,
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
 
         // Add an unresolved route to trigger the gate
         let rid = RouteId("app.unknown:GET".to_owned());
         let mut linked = Linked::default();
-        linked.route_index.insert(rid, vec![RouteRecord {
-            id: RouteId("app.unknown:GET".to_owned()),
-            ordinal: 0,
-            name: "unknown".to_owned(),
-            method: Method::Get,
-            resolved_path: ResolvedPath::Unresolved,
-            decorator_path: "/unknown".to_owned(),
-            chain: vec![],
-            handler: StateLocation { uri: uri2.clone(), range: Range::default() },
-            path_params: vec![],
-            response_model: None,
-            response_model_range: None,
-            return_annotation: None,
-            dependencies: vec![],
-            middleware: vec![],
-            path_range: None,
-            path_quote_width: None,
-            handler_params: vec![],
-            handler_param_ranges: vec![],
-            params_insert_pos: None,
-            handler_has_splat_args: false,
-            handler_params_known: false,
-        }]);
+        linked.route_index.insert(
+            rid,
+            vec![RouteRecord {
+                id: RouteId("app.unknown:GET".to_owned()),
+                ordinal: 0,
+                name: "unknown".to_owned(),
+                method: Method::Get,
+                resolved_path: ResolvedPath::Unresolved,
+                decorator_path: "/unknown".to_owned(),
+                chain: vec![],
+                handler: StateLocation {
+                    uri: uri2.clone(),
+                    range: Range::default(),
+                },
+                path_params: vec![],
+                response_model: None,
+                response_model_range: None,
+                return_annotation: None,
+                dependencies: vec![],
+                middleware: vec![],
+                path_range: None,
+                path_quote_width: None,
+                handler_params: vec![],
+                handler_param_ranges: vec![],
+                params_insert_pos: None,
+                handler_has_splat_args: false,
+                handler_params_known: false,
+            }],
+        );
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let url_diags: Vec<_> = diags.iter()
+        let url_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("url/unknown-name".to_owned())))
             .collect();
-        assert!(url_diags.is_empty(), "url/unknown-name should be suppressed when routes are unresolved");
+        assert!(
+            url_diags.is_empty(),
+            "url/unknown-name should be suppressed when routes are unresolved"
+        );
     }
 
     #[test]
     fn url_param_mismatch_suppressed_with_splat_kwargs() {
-        use std::sync::Arc;
-        use tower_lsp_server::ls_types::{Position, Uri};
         use crate::config::ResolvedConfig;
         use crate::state::{
             FileFacts, Linked, Location as StateLocation, Method, PathConverter, PathParam,
             ResolvedPath, RouteId, RouteRecord, UrlForSite,
         };
+        use std::sync::Arc;
+        use tower_lsp_server::ls_types::{Position, Uri};
 
         let uri: Uri = "file:///app/main.py".parse().unwrap();
 
@@ -1259,48 +1416,66 @@ mod tests {
             name: "get_book".to_owned(),
             kwarg_names: vec![],
             has_splat_kwargs: true, // **params style
-            range: Range { start: Position::new(2, 8), end: Position::new(2, 28) },
+            range: Range {
+                start: Position::new(2, 8),
+                end: Position::new(2, 28),
+            },
             name_range: None,
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
 
         let rid = RouteId("app.get_book:GET".to_owned());
         let mut linked = Linked::default();
-        linked.route_names.insert("get_book".to_owned(), vec![rid.clone()]);
-        linked.route_index.insert(rid, vec![RouteRecord {
-            id: RouteId("app.get_book:GET".to_owned()),
-            ordinal: 0,
-            name: "get_book".to_owned(),
-            method: Method::Get,
-            resolved_path: ResolvedPath::Resolved("/books/{book_id}".to_owned()),
-            decorator_path: "/books/{book_id}".to_owned(),
-            chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
-            path_params: vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Int }],
-            response_model: None,
-            response_model_range: None,
-            return_annotation: None,
-            dependencies: vec![],
-            middleware: vec![],
-            path_range: None,
-            path_quote_width: None,
-            handler_params: vec![],
-            handler_param_ranges: vec![],
-            params_insert_pos: None,
-            handler_has_splat_args: false,
-            handler_params_known: false,
-        }]);
+        linked
+            .route_names
+            .insert("get_book".to_owned(), vec![rid.clone()]);
+        linked.route_index.insert(
+            rid,
+            vec![RouteRecord {
+                id: RouteId("app.get_book:GET".to_owned()),
+                ordinal: 0,
+                name: "get_book".to_owned(),
+                method: Method::Get,
+                resolved_path: ResolvedPath::Resolved("/books/{book_id}".to_owned()),
+                decorator_path: "/books/{book_id}".to_owned(),
+                chain: vec![],
+                handler: StateLocation {
+                    uri: uri.clone(),
+                    range: Range::default(),
+                },
+                path_params: vec![PathParam {
+                    name: "book_id".to_owned(),
+                    converter: PathConverter::Int,
+                }],
+                response_model: None,
+                response_model_range: None,
+                return_annotation: None,
+                dependencies: vec![],
+                middleware: vec![],
+                path_range: None,
+                path_quote_width: None,
+                handler_params: vec![],
+                handler_param_ranges: vec![],
+                params_insert_pos: None,
+                handler_has_splat_args: false,
+                handler_params_known: false,
+            }],
+        );
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let mismatch_diags: Vec<_> = diags.iter()
+        let mismatch_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("url/param-mismatch".to_owned())))
             .collect();
-        assert!(mismatch_diags.is_empty(), "url/param-mismatch should be suppressed when **splat kwargs present");
+        assert!(
+            mismatch_diags.is_empty(),
+            "url/param-mismatch should be suppressed when **splat kwargs present"
+        );
     }
 
     // ── Cross-route check helpers ─────────────────────────────────────────────
@@ -1309,7 +1484,10 @@ mod tests {
     fn normalize_path_replaces_param_names() {
         assert_eq!(normalize_path("/books/{book_id}"), "/books/{}");
         assert_eq!(normalize_path("/books/{id}"), "/books/{}");
-        assert_eq!(normalize_path("/books/{book_id}/chapters/{chapter_id}"), "/books/{}/chapters/{}");
+        assert_eq!(
+            normalize_path("/books/{book_id}/chapters/{chapter_id}"),
+            "/books/{}/chapters/{}"
+        );
         assert_eq!(normalize_path("/books"), "/books");
         // Trailing slashes are distinct patterns (REQ-DIAG-05) — must NOT be collapsed
         assert_ne!(normalize_path("/books/"), normalize_path("/books"));
@@ -1336,28 +1514,40 @@ mod tests {
 
     #[test]
     fn literal_route_not_shadowed_by_int_param() {
-        assert!(!literal_route_shadowed_by("/books/featured", "/books/{id:int}"));
+        assert!(!literal_route_shadowed_by(
+            "/books/featured",
+            "/books/{id:int}"
+        ));
     }
 
     #[test]
     fn route_duplicate_diag_properties() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(10, 4), end: Position::new(10, 18) };
+        let range = Range {
+            start: Position::new(10, 4),
+            end: Position::new(10, 18),
+        };
         let uri: Uri = "file:///a.py".parse().unwrap();
-        let other = Location { uri, range: Range::default() };
+        let other = Location {
+            uri,
+            range: Range::default(),
+        };
         let d = route_duplicate_diag(range, "GET /books/{id}", other);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("route/duplicate".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("route/duplicate".to_owned()))
+        );
         assert!(d.related_information.is_some());
         assert!(d.message.contains("Duplicate route"));
     }
 
     #[test]
     fn route_shadowed_not_fired_for_two_identical_literal_routes() {
-        use std::sync::Arc;
-        use tower_lsp_server::ls_types::Uri;
         use crate::config::ResolvedConfig;
         use crate::state::{FileFacts, Linked};
+        use std::sync::Arc;
+        use tower_lsp_server::ls_types::Uri;
 
         let uri: Uri = "file:///router.py".parse().unwrap();
         let (rid1, rec1) = make_route_record(&uri, "view2", 0, 1);
@@ -1367,14 +1557,17 @@ mod tests {
         linked.route_index.insert(rid1, vec![rec1]);
         linked.route_index.insert(rid2, vec![rec2]);
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let shadowed_diags: Vec<_> = diags.iter()
+        let shadowed_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("route/shadowed".to_owned())))
             .collect();
         assert!(
@@ -1387,12 +1580,21 @@ mod tests {
     #[test]
     fn route_shadowed_diag_properties() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(12, 4), end: Position::new(12, 20) };
+        let range = Range {
+            start: Position::new(12, 4),
+            end: Position::new(12, 20),
+        };
         let uri: Uri = "file:///b.py".parse().unwrap();
-        let other = Location { uri, range: Range::default() };
+        let other = Location {
+            uri,
+            range: Range::default(),
+        };
         let d = route_shadowed_diag(range, "/books/featured", "/books/{id}", other);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("route/shadowed".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("route/shadowed".to_owned()))
+        );
         assert!(d.message.contains("Shadowed route"));
         assert!(d.related_information.is_some());
     }
@@ -1400,19 +1602,34 @@ mod tests {
     #[test]
     fn route_duplicate_name_diag_properties() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(8, 4), end: Position::new(8, 16) };
+        let range = Range {
+            start: Position::new(8, 4),
+            end: Position::new(8, 16),
+        };
         let uri: Uri = "file:///c.py".parse().unwrap();
-        let other = Location { uri: uri.clone(), range: Range::default() };
+        let other = Location {
+            uri: uri.clone(),
+            range: Range::default(),
+        };
         let d = route_duplicate_name_diag(range, "get_book", other);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("route/duplicate-name".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("route/duplicate-name".to_owned()))
+        );
         assert!(d.message.contains("get_book"));
         assert!(d.related_information.as_ref().map(|v| v.len()).unwrap_or(0) > 0);
 
-        let other2 = Location { uri, range: Range::default() };
+        let other2 = Location {
+            uri,
+            range: Range::default(),
+        };
         let h = route_duplicate_name_hint(range, "get_book", other2);
         assert_eq!(h.severity, Some(DiagnosticSeverity::HINT));
-        assert_eq!(h.code, Some(NumberOrString::String("route/duplicate-name".to_owned())));
+        assert_eq!(
+            h.code,
+            Some(NumberOrString::String("route/duplicate-name".to_owned()))
+        );
         assert!(h.message.contains("get_book"));
         assert!(h.related_information.as_ref().map(|v| v.len()).unwrap_or(0) > 0);
     }
@@ -1420,10 +1637,18 @@ mod tests {
     #[test]
     fn router_not_included_diag_properties() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(3, 0), end: Position::new(3, 14) };
+        let range = Range {
+            start: Position::new(3, 0),
+            end: Position::new(3, 14),
+        };
         let d = router_not_included_diag("book_router", range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("route/router-not-included".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String(
+                "route/router-not-included".to_owned()
+            ))
+        );
         assert!(d.message.contains("book_router"));
         assert!(d.message.contains("Router not included"));
     }
@@ -1431,21 +1656,37 @@ mod tests {
     #[test]
     fn settings_missing_env_diag_properties() {
         use tower_lsp_server::ls_types::Position;
-        let range = Range { start: Position::new(5, 4), end: Position::new(5, 14) };
+        let range = Range {
+            start: Position::new(5, 4),
+            end: Position::new(5, 14),
+        };
         let d = settings_missing_env_diag("DATABASE_URL", range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("settings/env-key-missing".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String(
+                "settings/env-key-missing".to_owned()
+            ))
+        );
         assert_eq!(d.source.as_deref(), Some("fastapi-lsp"));
         assert!(d.message.contains("DATABASE_URL"), "message: {}", d.message);
         assert!(d.message.contains("Required"), "message: {}", d.message);
-        assert!(d.tags.is_none(), "settings/env-key-missing should not be tagged UNNECESSARY");
+        assert!(
+            d.tags.is_none(),
+            "settings/env-key-missing should not be tagged UNNECESSARY"
+        );
     }
 
     // ── route/duplicate end-to-end ────────────────────────────────────────────
 
-    fn make_route_record(uri: &Uri, handler: &str, ordinal: u32, line: u32) -> (crate::state::RouteId, crate::state::RouteRecord) {
-        use tower_lsp_server::ls_types::Position;
+    fn make_route_record(
+        uri: &Uri,
+        handler: &str,
+        ordinal: u32,
+        line: u32,
+    ) -> (crate::state::RouteId, crate::state::RouteRecord) {
         use crate::state::{Location as StateLocation, Method, ResolvedPath, RouteId, RouteRecord};
+        use tower_lsp_server::ls_types::Position;
         let rid = RouteId(format!("{}:{}:GET", uri.as_str(), handler));
         let rec = RouteRecord {
             id: rid.clone(),
@@ -1481,10 +1722,10 @@ mod tests {
 
     #[test]
     fn route_duplicate_fires_for_same_path_same_router() {
-        use std::sync::Arc;
-        use tower_lsp_server::ls_types::Uri;
         use crate::config::ResolvedConfig;
         use crate::state::{FileFacts, Linked};
+        use std::sync::Arc;
+        use tower_lsp_server::ls_types::Uri;
 
         let uri: Uri = "file:///router.py".parse().unwrap();
         let (rid1, rec1) = make_route_record(&uri, "view2", 0, 1);
@@ -1494,20 +1735,29 @@ mod tests {
         linked.route_index.insert(rid1, vec![rec1]);
         linked.route_index.insert(rid2, vec![rec2]);
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let dup_diags: Vec<_> = diags.iter()
+        let dup_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("route/duplicate".to_owned())))
             .collect();
-        assert_eq!(dup_diags.len(), 1, "route/duplicate should fire once; got {:?}", dup_diags);
+        assert_eq!(
+            dup_diags.len(),
+            1,
+            "route/duplicate should fire once; got {:?}",
+            dup_diags
+        );
         assert!(
             dup_diags[0].message.contains("/pca/import-from-pca"),
-            "message: {}", dup_diags[0].message,
+            "message: {}",
+            dup_diags[0].message,
         );
     }
 
@@ -1540,7 +1790,10 @@ mod tests {
         let range = Range::default();
         let d = param_missing_arg_diag("book_id", range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("route/param-missing-arg".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+        );
         assert_eq!(d.source, Some("fastapi-lsp".to_owned()));
         assert!(d.message.contains("book_id"));
     }
@@ -1550,7 +1803,10 @@ mod tests {
         let range = Range::default();
         let d = arg_missing_param_diag("book_idd", "book_id", range);
         assert_eq!(d.severity, Some(DiagnosticSeverity::HINT));
-        assert_eq!(d.code, Some(NumberOrString::String("route/arg-missing-param".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("route/arg-missing-param".to_owned()))
+        );
         assert!(d.message.contains("book_idd"));
         assert!(d.message.contains("book_id"));
     }
@@ -1572,7 +1828,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(path.to_owned()),
             decorator_path: path.to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             path_params,
             response_model: None,
             response_model_range: None,
@@ -1592,40 +1851,70 @@ mod tests {
 
     #[test]
     fn no_diags_when_param_bound_by_handler() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        let path_params = vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Str }];
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        let path_params = vec![PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        }];
         let (id, record) = make_route_record_with_params(
-            &uri, "/books/{book_id}", path_params, vec!["book_id".to_owned()], false, true,
+            &uri,
+            "/books/{book_id}",
+            path_params,
+            vec!["book_id".to_owned()],
+            false,
+            true,
         );
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let param_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let param_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
         assert!(param_diags.is_empty(), "no diag when handler has param");
     }
 
     #[test]
     fn param_missing_arg_fires_when_unbound() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        let path_params = vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Str }];
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        let path_params = vec![PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        }];
         let (id, record) = make_route_record_with_params(
-            &uri, "/books/{book_id}", path_params, vec!["title".to_owned()], false, true,
+            &uri,
+            "/books/{book_id}",
+            path_params,
+            vec!["title".to_owned()],
+            false,
+            true,
         );
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let param_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let param_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
         assert_eq!(param_diags.len(), 1);
         assert!(param_diags[0].message.contains("book_id"));
@@ -1635,12 +1924,24 @@ mod tests {
     fn param_missing_arg_not_duplicated_for_multi_mount() {
         // Same handler mounted at /v1 and /v2 → two RouteRecords with same handler range.
         // dedup_diags must produce exactly ONE diagnostic, not two.
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        let path_params = vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Str }];
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        let path_params = vec![PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        }];
         let (id, record_v1) = make_route_record_with_params(
-            &uri, "/v1/books/{book_id}", path_params.clone(), vec!["title".to_owned()], false, true,
+            &uri,
+            "/v1/books/{book_id}",
+            path_params.clone(),
+            vec!["title".to_owned()],
+            false,
+            true,
         );
         // Second mount: same handler, different resolved path
         let record_v2 = RouteRecord {
@@ -1654,41 +1955,75 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let param_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let param_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
-        assert_eq!(param_diags.len(), 1, "multi-mount must produce exactly one param-missing-arg, not one per mount");
+        assert_eq!(
+            param_diags.len(),
+            1,
+            "multi-mount must produce exactly one param-missing-arg, not one per mount"
+        );
     }
 
     #[test]
     fn param_missing_arg_suppressed_by_splat() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        let path_params = vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Str }];
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        let path_params = vec![PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        }];
         let (id, record) = make_route_record_with_params(
-            &uri, "/books/{book_id}", path_params, vec!["title".to_owned()], true, true,
+            &uri,
+            "/books/{book_id}",
+            path_params,
+            vec!["title".to_owned()],
+            true,
+            true,
         );
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let param_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let param_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
         assert!(param_diags.is_empty(), "splat suppresses param-missing-arg");
     }
 
     #[test]
     fn arg_missing_param_fires_on_near_miss() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        let path_params = vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Str }];
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        let path_params = vec![PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        }];
         // handler has "book_idd" (typo, edit distance 1) but not "book_id"
         let (id, record) = make_route_record_with_params(
-            &uri, "/books/{book_id}", path_params, vec!["book_idd".to_owned()], false, true,
+            &uri,
+            "/books/{book_id}",
+            path_params,
+            vec!["book_idd".to_owned()],
+            false,
+            true,
         );
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
@@ -1696,46 +2031,73 @@ mod tests {
 
         let diags = compute(&state, &uri, &[]);
         assert!(
-            diags.iter().any(|d| d.code == Some(NumberOrString::String("route/arg-missing-param".to_owned()))),
+            diags
+                .iter()
+                .any(|d| d.code
+                    == Some(NumberOrString::String("route/arg-missing-param".to_owned()))),
             "arg-missing-param should fire on near-miss rename"
         );
         assert!(
-            diags.iter().any(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))),
+            diags
+                .iter()
+                .any(|d| d.code
+                    == Some(NumberOrString::String("route/param-missing-arg".to_owned()))),
             "param-missing-arg should also fire"
         );
     }
 
     #[test]
     fn param_bound_by_dep_suppresses_diag() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
         // dep_def with book_id param
         facts.dep_defs.push(crate::state::DepDef {
             name: "verify_owner".to_owned(),
-            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            node_id: crate::state::NodeId {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             has_yield: false,
             param_names: vec!["book_id".to_owned()],
         });
         state.file_facts.insert(uri.clone(), facts);
 
-        let path_params = vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Str }];
+        let path_params = vec![PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        }];
         let mut record_base = make_route_record_with_params(
-            &uri, "/books/{book_id}", path_params, vec!["user".to_owned()], false, true,
+            &uri,
+            "/books/{book_id}",
+            path_params,
+            vec!["user".to_owned()],
+            false,
+            true,
         );
         // handler depends on verify_owner
         record_base.1.dependencies = vec!["verify_owner".to_owned()];
         let (id, record) = record_base;
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
-        linked.dep_params.insert("verify_owner".to_owned(), vec!["book_id".to_owned()]);
+        linked
+            .dep_params
+            .insert("verify_owner".to_owned(), vec!["book_id".to_owned()]);
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let param_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let param_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
-        assert!(param_diags.is_empty(), "dep binding suppresses param-missing-arg");
+        assert!(
+            param_diags.is_empty(),
+            "dep binding suppresses param-missing-arg"
+        );
     }
 
     #[test]
@@ -1743,7 +2105,9 @@ mod tests {
         // Regression: when a route has `name="api.contracts.create"`, record.name differs from
         // the Python function name. The BFS must look up sig_deps_map and all_plain_typed by
         // the handler function name, not the route name kwarg.
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///router.py".parse().unwrap();
 
         let handler_func = "create_contract_view";
@@ -1753,19 +2117,26 @@ mod tests {
         // dep_def: fetch_contract takes contract_id
         facts.dep_defs.push(crate::state::DepDef {
             name: "fetch_contract".to_owned(),
-            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            node_id: crate::state::NodeId {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             has_yield: false,
             param_names: vec!["dbsession".to_owned(), "contract_id".to_owned()],
         });
         // dep_type_alias: CurrentContract = Annotated[..., Depends(fetch_contract)]
-        facts.dep_type_aliases.insert("CurrentContract".to_owned(), "fetch_contract".to_owned());
+        facts
+            .dep_type_aliases
+            .insert("CurrentContract".to_owned(), "fetch_contract".to_owned());
         // plain_typed_param: create_contract_view has `contract: CurrentContract`
-        facts.plain_typed_params.push(crate::state::PlainTypedParam {
-            containing_func: handler_func.to_owned(),
-            param_name: "contract".to_owned(),
-            type_name: "CurrentContract".to_owned(),
-            annotation_range: Range::default(),
-        });
+        facts
+            .plain_typed_params
+            .push(crate::state::PlainTypedParam {
+                containing_func: handler_func.to_owned(),
+                param_name: "contract".to_owned(),
+                type_name: "CurrentContract".to_owned(),
+                annotation_range: Range::default(),
+            });
         state.file_facts.insert(uri.clone(), facts);
 
         // RouteId must use the real handler func name so extraction works
@@ -1778,8 +2149,14 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/contracts/{contract_id}".to_owned()),
             decorator_path: "/contracts/{contract_id}".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
-            path_params: vec![PathParam { name: "contract_id".to_owned(), converter: PathConverter::Str }],
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
+            path_params: vec![PathParam {
+                name: "contract_id".to_owned(),
+                converter: PathConverter::Str,
+            }],
             response_model: None,
             response_model_range: None,
             return_annotation: None,
@@ -1795,12 +2172,18 @@ mod tests {
         };
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
-        linked.dep_params.insert("fetch_contract".to_owned(), vec!["dbsession".to_owned(), "contract_id".to_owned()]);
+        linked.dep_params.insert(
+            "fetch_contract".to_owned(),
+            vec!["dbsession".to_owned(), "contract_id".to_owned()],
+        );
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let param_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let param_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
         assert!(
             param_diags.is_empty(),
@@ -1813,13 +2196,25 @@ mod tests {
     fn route_param_checks_suppressed_when_params_unknown() {
         // Table-style routes (handler_params_known: false) must not emit route/param-missing-arg
         // or route/arg-missing-param — we cannot reliably extract their handler signatures.
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        let path_params = vec![PathParam { name: "book_id".to_owned(), converter: PathConverter::Str }];
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        let path_params = vec![PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        }];
         // handler_params_known: false — table-style route, params cannot be extracted
         let (id, record) = make_route_record_with_params(
-            &uri, "/books/{book_id}", path_params, vec![], false, false,
+            &uri,
+            "/books/{book_id}",
+            path_params,
+            vec![],
+            false,
+            false,
         );
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
@@ -1829,12 +2224,18 @@ mod tests {
         let route_diags: Vec<_> = diags.iter()
             .filter(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c.starts_with("route/param-")))
             .collect();
-        assert!(route_diags.is_empty(), "route/param-* must be suppressed when handler_params_known is false");
+        assert!(
+            route_diags.is_empty(),
+            "route/param-* must be suppressed when handler_params_known is false"
+        );
     }
 
     // ── model/unknown-response-model tests ───────────────────────────────────
 
-    fn make_route_with_response_model(uri: &Uri, model_name: &str) -> (RouteId, crate::state::RouteRecord) {
+    fn make_route_with_response_model(
+        uri: &Uri,
+        model_name: &str,
+    ) -> (RouteId, crate::state::RouteRecord) {
         use crate::state::{ResolvedPath, RouteRecord};
         let id = RouteId(format!("{}:GET", model_name));
         let record = RouteRecord {
@@ -1845,7 +2246,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(format!("/{}", model_name.to_lowercase())),
             decorator_path: format!("/{}", model_name.to_lowercase()),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: Some(model_name.to_owned()),
             response_model_range: None,
@@ -1865,9 +2269,13 @@ mod tests {
 
     #[test]
     fn unknown_response_model_fires_when_not_in_index_or_imports() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
         let (id, record) = make_route_with_response_model(&uri, "Book");
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
@@ -1875,37 +2283,61 @@ mod tests {
 
         let diags = compute(&state, &uri, &[]);
         assert!(
-            diags.iter().any(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned()))),
+            diags.iter().any(|d| d.code
+                == Some(NumberOrString::String(
+                    "model/unknown-response-model".to_owned()
+                ))),
             "should fire when model is not in index or imports"
         );
     }
 
     #[test]
     fn unknown_response_model_suppressed_when_in_model_index() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let model_uri: Uri = "file:///models.py".parse().unwrap();
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
         let (id, record) = make_route_with_response_model(&uri, "Book");
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
-        linked.model_index.insert("Book".to_owned(), vec![crate::state::ModelRecord {
-            name: "Book".to_owned(),
-            location: StateLocation { uri: model_uri, range: Range::default() },
-            is_settings: false,
-        }]);
+        linked.model_index.insert(
+            "Book".to_owned(),
+            vec![crate::state::ModelRecord {
+                name: "Book".to_owned(),
+                location: StateLocation {
+                    uri: model_uri,
+                    range: Range::default(),
+                },
+                is_settings: false,
+            }],
+        );
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let model_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned())))
+        let model_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "model/unknown-response-model".to_owned(),
+                    ))
+            })
             .collect();
-        assert!(model_diags.is_empty(), "model in index suppresses diagnostic");
+        assert!(
+            model_diags.is_empty(),
+            "model in index suppresses diagnostic"
+        );
     }
 
     #[test]
     fn unknown_response_model_suppressed_when_imported() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
         facts.imported_names.push("Book".to_owned());
@@ -1916,15 +2348,26 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let model_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned())))
+        let model_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "model/unknown-response-model".to_owned(),
+                    ))
+            })
             .collect();
-        assert!(model_diags.is_empty(), "imported name suppresses diagnostic");
+        assert!(
+            model_diags.is_empty(),
+            "imported name suppresses diagnostic"
+        );
     }
 
     #[test]
     fn unknown_response_model_suppressed_by_wildcard_import() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
         facts.imported_names.push("*".to_owned());
@@ -1935,10 +2378,19 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let model_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned())))
+        let model_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "model/unknown-response-model".to_owned(),
+                    ))
+            })
             .collect();
-        assert!(model_diags.is_empty(), "wildcard import suppresses diagnostic");
+        assert!(
+            model_diags.is_empty(),
+            "wildcard import suppresses diagnostic"
+        );
     }
 
     fn make_route_with_return_annotation(
@@ -1955,7 +2407,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(format!("/{}", annotation.to_lowercase())),
             decorator_path: format!("/{}", annotation.to_lowercase()),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,
@@ -1975,7 +2430,9 @@ mod tests {
 
     #[test]
     fn return_annotation_fires_when_not_in_index_or_imports() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let facts = FileFacts::new(uri.clone());
         state.file_facts.insert(uri.clone(), facts);
@@ -1985,15 +2442,27 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let model_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned())))
+        let model_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "model/unknown-response-model".to_owned(),
+                    ))
+            })
             .collect();
-        assert_eq!(model_diags.len(), 1, "return annotation fires when model not found");
+        assert_eq!(
+            model_diags.len(),
+            1,
+            "return annotation fires when model not found"
+        );
     }
 
     #[test]
     fn return_annotation_suppressed_when_in_model_index() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let facts = FileFacts::new(uri.clone());
         state.file_facts.insert(uri.clone(), facts);
@@ -2003,7 +2472,10 @@ mod tests {
             "Book".to_owned(),
             vec![crate::state::ModelRecord {
                 name: "Book".to_owned(),
-                location: StateLocation { uri: uri.clone(), range: Range::default() },
+                location: StateLocation {
+                    uri: uri.clone(),
+                    range: Range::default(),
+                },
                 is_settings: false,
             }],
         );
@@ -2011,15 +2483,26 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let model_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned())))
+        let model_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "model/unknown-response-model".to_owned(),
+                    ))
+            })
             .collect();
-        assert!(model_diags.is_empty(), "return annotation suppressed when model in index");
+        assert!(
+            model_diags.is_empty(),
+            "return annotation suppressed when model in index"
+        );
     }
 
     #[test]
     fn return_annotation_suppressed_when_imported() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
         facts.imported_names.push("Book".to_owned());
@@ -2030,15 +2513,26 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let model_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned())))
+        let model_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "model/unknown-response-model".to_owned(),
+                    ))
+            })
             .collect();
-        assert!(model_diags.is_empty(), "return annotation suppressed when name is imported");
+        assert!(
+            model_diags.is_empty(),
+            "return annotation suppressed when name is imported"
+        );
     }
 
     #[test]
     fn response_model_kwarg_takes_precedence_over_return_annotation() {
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///a.py".parse().unwrap();
         let facts = FileFacts::new(uri.clone());
         state.file_facts.insert(uri.clone(), facts);
@@ -2054,7 +2548,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/test".to_owned()),
             decorator_path: "/test".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: Some("Book".to_owned()),
             response_model_range: None,
@@ -2074,27 +2571,45 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let model_diags: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("model/unknown-response-model".to_owned())))
+        let model_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "model/unknown-response-model".to_owned(),
+                    ))
+            })
             .collect();
         assert_eq!(model_diags.len(), 1);
-        assert!(model_diags[0].message.contains("Book"), "diagnostic names the kwarg model, not the annotation");
+        assert!(
+            model_diags[0].message.contains("Book"),
+            "diagnostic names the kwarg model, not the annotation"
+        );
     }
 
     // ── tpl/missing-template ──────────────────────────────────────────────────
 
     fn tpl_range() -> Range {
         use tower_lsp_server::ls_types::Position;
-        Range { start: Position::new(3, 10), end: Position::new(3, 24) }
+        Range {
+            start: Position::new(3, 10),
+            end: Position::new(3, 24),
+        }
     }
 
     #[test]
     fn missing_template_diag_no_suggestion() {
         let d = missing_template_diag("missing.html", None, tpl_range());
         assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(d.code, Some(NumberOrString::String("tpl/missing-template".to_owned())));
+        assert_eq!(
+            d.code,
+            Some(NumberOrString::String("tpl/missing-template".to_owned()))
+        );
         assert!(d.message.contains("missing.html"), "message contains path");
-        assert!(!d.message.contains("did you mean"), "no suggestion clause when None");
+        assert!(
+            !d.message.contains("did you mean"),
+            "no suggestion clause when None"
+        );
     }
 
     #[test]
@@ -2108,21 +2623,28 @@ mod tests {
     #[test]
     fn compute_fires_missing_template_when_roots_present() {
         use crate::state::TemplateRef;
-        let state = WorkspaceState::new(
-            crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")),
-        );
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///app.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "missing.html".to_owned(), range: tpl_range() });
+        facts.templates.push(TemplateRef {
+            path: "missing.html".to_owned(),
+            range: tpl_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
         // Index has some entries (roots "exist") but not the referenced template.
-        linked.template_index.insert("index.html".to_owned(), "file:///tpl/index.html".parse().unwrap());
+        linked.template_index.insert(
+            "index.html".to_owned(),
+            "file:///tpl/index.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let tpl_diags: Vec<_> = diags.iter()
+        let tpl_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("tpl/missing-template".to_owned())))
             .collect();
         assert_eq!(tpl_diags.len(), 1);
@@ -2132,40 +2654,54 @@ mod tests {
     #[test]
     fn compute_suppressed_when_no_template_roots() {
         use crate::state::TemplateRef;
-        let state = WorkspaceState::new(
-            crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")),
-        );
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///app.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "missing.html".to_owned(), range: tpl_range() });
+        facts.templates.push(TemplateRef {
+            path: "missing.html".to_owned(),
+            range: tpl_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
         // Empty index — no roots scanned → stay silent (P4).
         state.linked.store(Arc::new(Linked::default()));
 
         let diags = compute(&state, &uri, &[]);
-        let tpl_diags: Vec<_> = diags.iter()
+        let tpl_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("tpl/missing-template".to_owned())))
             .collect();
-        assert!(tpl_diags.is_empty(), "must not fire when no template roots configured");
+        assert!(
+            tpl_diags.is_empty(),
+            "must not fire when no template roots configured"
+        );
     }
 
     #[test]
     fn compute_no_diag_when_template_found() {
         use crate::state::TemplateRef;
-        let state = WorkspaceState::new(
-            crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")),
-        );
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///app.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "index.html".to_owned(), range: tpl_range() });
+        facts.templates.push(TemplateRef {
+            path: "index.html".to_owned(),
+            range: tpl_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("index.html".to_owned(), "file:///tpl/index.html".parse().unwrap());
+        linked.template_index.insert(
+            "index.html".to_owned(),
+            "file:///tpl/index.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let tpl_diags: Vec<_> = diags.iter()
+        let tpl_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("tpl/missing-template".to_owned())))
             .collect();
         assert!(tpl_diags.is_empty(), "no diag when template is in index");
@@ -2174,25 +2710,35 @@ mod tests {
     #[test]
     fn compute_includes_near_miss_suggestion() {
         use crate::state::TemplateRef;
-        let state = WorkspaceState::new(
-            crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")),
-        );
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///app.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
         // "book_lst.html" is edit-distance-1 from "book_list.html"
-        facts.templates.push(TemplateRef { path: "book_lst.html".to_owned(), range: tpl_range() });
+        facts.templates.push(TemplateRef {
+            path: "book_lst.html".to_owned(),
+            range: tpl_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("book_list.html".to_owned(), "file:///tpl/book_list.html".parse().unwrap());
+        linked.template_index.insert(
+            "book_list.html".to_owned(),
+            "file:///tpl/book_list.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let tpl_diags: Vec<_> = diags.iter()
+        let tpl_diags: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("tpl/missing-template".to_owned())))
             .collect();
         assert_eq!(tpl_diags.len(), 1);
-        assert!(tpl_diags[0].message.contains("book_list.html"), "suggestion in message");
+        assert!(
+            tpl_diags[0].message.contains("book_list.html"),
+            "suggestion in message"
+        );
         assert!(tpl_diags[0].message.contains("Did you mean"));
     }
 
@@ -2224,7 +2770,10 @@ mod tests {
             middleware: vec![],
             path_range: Some(Range {
                 start: tower_lsp_server::ls_types::Position::new(2, path_start_col),
-                end: tower_lsp_server::ls_types::Position::new(2, path_start_col + path.encode_utf16().count() as u32 + 2),
+                end: tower_lsp_server::ls_types::Position::new(
+                    2,
+                    path_start_col + path.encode_utf16().count() as u32 + 2,
+                ),
             }),
             path_quote_width: Some(1), // single opening quote
             handler_params: vec![],
@@ -2242,8 +2791,16 @@ mod tests {
         // path char col 10 + 1(quote) + 7("/items/") = 18 for "{id}"
         let record = make_route_for_range("/items/{id}", 10);
         let r = param_segment_range(&record, "id");
-        assert_eq!(r.start.character, 10 + 1 + 7, "ASCII: col_start should be 18");
-        assert_eq!(r.end.character, 10 + 1 + 7 + 4, "ASCII: col_end = start + len({{id}})");
+        assert_eq!(
+            r.start.character,
+            10 + 1 + 7,
+            "ASCII: col_start should be 18"
+        );
+        assert_eq!(
+            r.end.character,
+            10 + 1 + 7 + 4,
+            "ASCII: col_end = start + len({{id}})"
+        );
     }
 
     #[test]
@@ -2257,8 +2814,15 @@ mod tests {
         let record = make_route_for_range(path, 5);
         let r = param_segment_range(&record, "id");
         let expected_start = 5 + 1 + utf16_prefix;
-        assert_eq!(r.start.character, expected_start, "é is 1 UTF-16 unit — col should be {expected_start}");
-        assert_eq!(r.end.character, expected_start + 4, "{{id}} = 4 UTF-16 units");
+        assert_eq!(
+            r.start.character, expected_start,
+            "é is 1 UTF-16 unit — col should be {expected_start}"
+        );
+        assert_eq!(
+            r.end.character,
+            expected_start + 4,
+            "{{id}} = 4 UTF-16 units"
+        );
     }
 
     #[test]
@@ -2270,8 +2834,15 @@ mod tests {
         let record = make_route_for_range(path, 3);
         let r = param_segment_range(&record, "id");
         let expected_start = 3 + 1 + utf16_prefix;
-        assert_eq!(r.start.character, expected_start, "🚀 = 2 UTF-16 units — col should be {expected_start}");
-        assert_eq!(r.end.character, expected_start + 4, "{{id}} = 4 UTF-16 units");
+        assert_eq!(
+            r.start.character, expected_start,
+            "🚀 = 2 UTF-16 units — col should be {expected_start}"
+        );
+        assert_eq!(
+            r.end.character,
+            expected_start + 4,
+            "{{id}} = 4 UTF-16 units"
+        );
     }
 
     // ── Issue 5: router-not-included per-router gate ─────────────────────────
@@ -2281,23 +2852,28 @@ mod tests {
         has_unresolved_route: bool,
         unresolved_include_target: Option<&str>,
     ) -> (std::sync::Arc<crate::state::WorkspaceState>, Uri) {
-        use std::sync::Arc;
         use crate::config::ResolvedConfig;
-        use crate::state::{FileFacts, IncludeCall, Linked, RouterDecl, RouteId, RouteRecord,
-                           Location as StateLocation, Method, ResolvedPath, PrefixValue};
+        use crate::state::{
+            FileFacts, IncludeCall, Linked, Location as StateLocation, Method, PrefixValue,
+            ResolvedPath, RouteId, RouteRecord, RouterDecl,
+        };
+        use std::sync::Arc;
         use tower_lsp_server::ls_types::Position;
 
         let uri: Uri = "file:///myapp.py".parse().unwrap();
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
 
         let mut facts = FileFacts::new(uri.clone());
         facts.routers.push(RouterDecl {
             name: router_name.to_owned(),
             prefix: PrefixValue::Unresolved,
             tags: vec![],
-            range: Range { start: Position::new(1, 0), end: Position::new(1, 10) },
+            range: Range {
+                start: Position::new(1, 0),
+                end: Position::new(1, 10),
+            },
         });
 
         // Optionally add an unresolved include pointing to something OTHER than our router
@@ -2316,29 +2892,35 @@ mod tests {
         let mut linked = Linked::default();
         if has_unresolved_route {
             let id = RouteId("unresolved:test".to_owned());
-            linked.route_index.insert(id, vec![RouteRecord {
-                id: RouteId("unresolved:test".to_owned()),
-                ordinal: 0,
-                name: "some_view".to_owned(),
-                method: Method::Get,
-                resolved_path: ResolvedPath::Unresolved,
-                decorator_path: "/test".to_owned(),
-                chain: vec![],
-                handler: StateLocation { uri: uri.clone(), range: Range::default() },
-                path_params: vec![],
-                response_model: None,
-                response_model_range: None,
-                return_annotation: None,
-                dependencies: vec![],
-                middleware: vec![],
-                path_range: None,
-                path_quote_width: None,
-                handler_params: vec![],
-                handler_param_ranges: vec![],
-                params_insert_pos: None,
-                handler_has_splat_args: false,
-                handler_params_known: true,
-            }]);
+            linked.route_index.insert(
+                id,
+                vec![RouteRecord {
+                    id: RouteId("unresolved:test".to_owned()),
+                    ordinal: 0,
+                    name: "some_view".to_owned(),
+                    method: Method::Get,
+                    resolved_path: ResolvedPath::Unresolved,
+                    decorator_path: "/test".to_owned(),
+                    chain: vec![],
+                    handler: StateLocation {
+                        uri: uri.clone(),
+                        range: Range::default(),
+                    },
+                    path_params: vec![],
+                    response_model: None,
+                    response_model_range: None,
+                    return_annotation: None,
+                    dependencies: vec![],
+                    middleware: vec![],
+                    path_range: None,
+                    path_quote_width: None,
+                    handler_params: vec![],
+                    handler_param_ranges: vec![],
+                    params_insert_pos: None,
+                    handler_has_splat_args: false,
+                    handler_params_known: true,
+                }],
+            );
         }
         state.linked.store(Arc::new(linked));
 
@@ -2351,26 +2933,41 @@ mod tests {
         // the diagnostic should fire because no include targets match "never_router"
         let (state, uri) = make_router_not_included_state("never_router", true, None);
         let diags = compute(&*state, &uri, &[]);
-        let not_included: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/router-not-included".to_owned())))
+        let not_included: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "route/router-not-included".to_owned(),
+                    ))
+            })
             .collect();
         assert!(
             !not_included.is_empty(),
-            "router-not-included must fire for never_router even when other routes are unresolved; got {:?}", not_included,
+            "router-not-included must fire for never_router even when other routes are unresolved; got {:?}",
+            not_included,
         );
     }
 
     #[test]
     fn router_not_included_suppressed_when_target_matches_unresolved_include() {
         // there's an unresolved include whose target IS "never_router" → suppress
-        let (state, uri) = make_router_not_included_state("never_router", true, Some("never_router"));
+        let (state, uri) =
+            make_router_not_included_state("never_router", true, Some("never_router"));
         let diags = compute(&*state, &uri, &[]);
-        let not_included: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/router-not-included".to_owned())))
+        let not_included: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "route/router-not-included".to_owned(),
+                    ))
+            })
             .collect();
         assert!(
             not_included.is_empty(),
-            "router-not-included must be suppressed when an unresolved include targets this router; got {:?}", not_included,
+            "router-not-included must be suppressed when an unresolved include targets this router; got {:?}",
+            not_included,
         );
     }
 
@@ -2382,9 +2979,12 @@ mod tests {
         path_b: &str,
         url_for_name: Option<&str>,
     ) -> (std::sync::Arc<crate::state::WorkspaceState>, Uri) {
-        use std::sync::Arc;
         use crate::config::ResolvedConfig;
-        use crate::state::{FileFacts, Linked, Location as StateLocation, Method, ResolvedPath, RouteId, RouteRecord, UrlForSite};
+        use crate::state::{
+            FileFacts, Linked, Location as StateLocation, Method, ResolvedPath, RouteId,
+            RouteRecord, UrlForSite,
+        };
+        use std::sync::Arc;
         use tower_lsp_server::ls_types::Position;
 
         let uri_a: Uri = "file:///a.py".parse().unwrap();
@@ -2398,11 +2998,18 @@ mod tests {
                 name: name.to_owned(),
                 method: Method::Get,
                 resolved_path: ResolvedPath::Resolved(path.to_owned()),
-                decorator_path: path.split('/').last().map(|s| format!("/{s}")).unwrap_or_else(|| path.to_owned()),
+                decorator_path: path
+                    .split('/')
+                    .last()
+                    .map(|s| format!("/{s}"))
+                    .unwrap_or_else(|| path.to_owned()),
                 chain: vec![],
                 handler: StateLocation {
                     uri: uri.clone(),
-                    range: Range { start: Position::new(1, 0), end: Position::new(1, 10) },
+                    range: Range {
+                        start: Position::new(1, 0),
+                        end: Position::new(1, 10),
+                    },
                 },
                 path_params: vec![],
                 response_model: None,
@@ -2428,9 +3035,9 @@ mod tests {
         linked.route_index.insert(rid_a, vec![rec_a]);
         linked.route_index.insert(rid_b, vec![rec_b]);
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
 
         let mut facts_a = FileFacts::new(uri_a.clone());
         if let Some(n) = url_for_name {
@@ -2443,7 +3050,9 @@ mod tests {
             });
         }
         state.file_facts.insert(uri_a.clone(), facts_a);
-        state.file_facts.insert(uri_b.clone(), FileFacts::new(uri_b));
+        state
+            .file_facts
+            .insert(uri_b.clone(), FileFacts::new(uri_b));
         state.linked.store(Arc::new(linked));
 
         (state, uri_a)
@@ -2458,12 +3067,14 @@ mod tests {
             None, // no url_for call anywhere
         );
         let diags = compute(&*state, &uri, &[]);
-        let dup_name: Vec<_> = diags.iter()
+        let dup_name: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("route/duplicate-name".to_owned())))
             .collect();
         assert!(
             dup_name.is_empty(),
-            "route/duplicate-name must not fire when name is never used in url_for; got {:?}", dup_name,
+            "route/duplicate-name must not fire when name is never used in url_for; got {:?}",
+            dup_name,
         );
     }
 
@@ -2476,7 +3087,8 @@ mod tests {
             Some("index_view"), // url_for('index_view') present
         );
         let diags = compute(&*state, &uri, &[]);
-        let dup_name: Vec<_> = diags.iter()
+        let dup_name: Vec<_> = diags
+            .iter()
             .filter(|d| d.code == Some(NumberOrString::String("route/duplicate-name".to_owned())))
             .collect();
         assert!(
@@ -2490,14 +3102,17 @@ mod tests {
     fn make_state_with_dep(
         path: &str,
         handler_params: Vec<String>,
-        dep_in_signature: Option<&str>,   // dep fn name used in handler signature Depends()
-        dep_params: Vec<String>,           // params that dep fn accepts
+        dep_in_signature: Option<&str>, // dep fn name used in handler signature Depends()
+        dep_params: Vec<String>,        // params that dep fn accepts
         nested_dep: Option<(&str, Vec<String>)>, // (nested_dep_name, its_params)
     ) -> (std::sync::Arc<crate::state::WorkspaceState>, Uri) {
-        use std::sync::Arc;
         use crate::config::ResolvedConfig;
-        use crate::state::{FileFacts, Linked, Location as StateLocation, Method, ResolvedPath, RouteId, RouteRecord};
         use crate::state::AnnotatedParam;
+        use crate::state::{
+            FileFacts, Linked, Location as StateLocation, Method, ResolvedPath, RouteId,
+            RouteRecord,
+        };
+        use std::sync::Arc;
 
         let uri: Uri = "file:///router.py".parse().unwrap();
         let path_params = crate::util::extract_path_params(path);
@@ -2510,7 +3125,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(path.to_owned()),
             decorator_path: path.to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             path_params,
             response_model: None,
             response_model_range: None,
@@ -2529,15 +3147,19 @@ mod tests {
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![rec]);
         if let Some(dep_name) = dep_in_signature {
-            linked.dep_params.insert(dep_name.to_owned(), dep_params.clone());
+            linked
+                .dep_params
+                .insert(dep_name.to_owned(), dep_params.clone());
         }
         if let Some((nested_name, nested_params)) = &nested_dep {
-            linked.dep_params.insert(nested_name.to_string(), nested_params.clone());
+            linked
+                .dep_params
+                .insert(nested_name.to_string(), nested_params.clone());
         }
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from(".")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
 
         let mut facts = FileFacts::new(uri.clone());
         if let Some(dep_name) = dep_in_signature.as_ref().copied() {
@@ -2586,12 +3208,16 @@ mod tests {
             None,
         );
         let diags = compute(&*state, &uri, &[]);
-        let missing: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let missing: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
         assert!(
             missing.is_empty(),
-            "param-missing-arg must not fire when dep in handler signature consumes the path param; got {:?}", missing,
+            "param-missing-arg must not fire when dep in handler signature consumes the path param; got {:?}",
+            missing,
         );
     }
 
@@ -2610,12 +3236,16 @@ mod tests {
             Some(("get_project", vec!["id".to_owned()])),
         );
         let diags = compute(&*state, &uri, &[]);
-        let missing: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let missing: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
         assert!(
             missing.is_empty(),
-            "param-missing-arg must not fire when nested dep consumes the path param; got {:?}", missing,
+            "param-missing-arg must not fire when nested dep consumes the path param; got {:?}",
+            missing,
         );
     }
 
@@ -2625,34 +3255,54 @@ mod tests {
         //   CurrentProject = Annotated[Project, Depends(fetch_project)]
         //   async def view_project(project: CurrentProject): ...  (path /{id:uuid})
         // fetch_project(id: uuid.UUID) consumes the path param — no diagnostic expected.
-        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("."),
+        ));
         let uri: Uri = "file:///router.py".parse().unwrap();
         let mut facts = FileFacts::new(uri.clone());
-        facts.dep_type_aliases.insert("CurrentProject".to_owned(), "fetch_project".to_owned());
-        facts.plain_typed_params.push(crate::state::PlainTypedParam {
-            containing_func: "handler".to_owned(),
-            param_name: "project".to_owned(),
-            type_name: "CurrentProject".to_owned(),
-            annotation_range: Range::default(),
-        });
+        facts
+            .dep_type_aliases
+            .insert("CurrentProject".to_owned(), "fetch_project".to_owned());
+        facts
+            .plain_typed_params
+            .push(crate::state::PlainTypedParam {
+                containing_func: "handler".to_owned(),
+                param_name: "project".to_owned(),
+                type_name: "CurrentProject".to_owned(),
+                annotation_range: Range::default(),
+            });
         state.file_facts.insert(uri.clone(), facts);
 
-        let path_params = vec![PathParam { name: "id".to_owned(), converter: PathConverter::Uuid }];
+        let path_params = vec![PathParam {
+            name: "id".to_owned(),
+            converter: PathConverter::Uuid,
+        }];
         let (route_id, record) = make_route_record_with_params(
-            &uri, "/projects/{id:uuid}", path_params, vec!["project".to_owned()], false, true,
+            &uri,
+            "/projects/{id:uuid}",
+            path_params,
+            vec!["project".to_owned()],
+            false,
+            true,
         );
         let mut linked = Linked::default();
         linked.route_index.insert(route_id, vec![record]);
-        linked.dep_params.insert("fetch_project".to_owned(), vec!["id".to_owned()]);
+        linked
+            .dep_params
+            .insert("fetch_project".to_owned(), vec!["id".to_owned()]);
         state.linked.store(Arc::new(linked));
 
         let diags = compute(&state, &uri, &[]);
-        let missing: Vec<_> = diags.iter()
-            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+        let missing: Vec<_> = diags
+            .iter()
+            .filter(|d| {
+                d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned()))
+            })
             .collect();
         assert!(
             missing.is_empty(),
-            "param-missing-arg must not fire when path param is consumed via type alias dep; got {:?}", missing,
+            "param-missing-arg must not fire when path param is consumed via type alias dep; got {:?}",
+            missing,
         );
     }
 }

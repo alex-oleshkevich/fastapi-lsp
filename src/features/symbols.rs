@@ -28,10 +28,7 @@ pub fn document_symbols(state: &WorkspaceState, uri: &Uri) -> Vec<DocumentSymbol
         .collect()
 }
 
-pub fn workspace_symbols(
-    state: &WorkspaceState,
-    query: &str,
-) -> WorkspaceSymbolResponse {
+pub fn workspace_symbols(state: &WorkspaceState, query: &str) -> WorkspaceSymbolResponse {
     let linked = state.linked.load();
     let symbols: Vec<WorkspaceSymbol> = linked
         .route_index
@@ -111,7 +108,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(path.to_owned()),
             decorator_path: path.to_owned(),
             chain: vec![],
-            handler: StateLocation { uri, range: Range::default() },
+            handler: StateLocation {
+                uri,
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,
@@ -131,16 +131,31 @@ mod tests {
     #[test]
     fn symbol_search_method_trailing_space() {
         let r = make_record(Method::Get, "/items", "list_items");
-        assert!(matches_query(&r, "GET "), "trailing space after method must still match");
-        assert!(matches_query(&r, "get "), "lowercase with trailing space must match");
+        assert!(
+            matches_query(&r, "GET "),
+            "trailing space after method must still match"
+        );
+        assert!(
+            matches_query(&r, "get "),
+            "lowercase with trailing space must match"
+        );
     }
 
     #[test]
     fn symbol_search_method_and_path_tokens() {
         let r = make_record(Method::Get, "/v1/items", "list_items");
-        assert!(matches_query(&r, "GET items"), "method + path fragment must both match");
-        assert!(matches_query(&r, "get /v1"), "lowercase method + prefix must match");
-        assert!(!matches_query(&r, "POST items"), "wrong method must not match");
+        assert!(
+            matches_query(&r, "GET items"),
+            "method + path fragment must both match"
+        );
+        assert!(
+            matches_query(&r, "get /v1"),
+            "lowercase method + prefix must match"
+        );
+        assert!(
+            !matches_query(&r, "POST items"),
+            "wrong method must not match"
+        );
     }
 
     #[test]

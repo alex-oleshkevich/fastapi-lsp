@@ -15,7 +15,8 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
     // ── 1. Test references (deferred) ─────────────────────────────────────────
     {
         type RangeKey = (u32, u32, u32, u32);
-        type RangeMap = std::collections::HashMap<RangeKey, (tower_lsp_server::ls_types::Range, Vec<String>)>;
+        type RangeMap =
+            std::collections::HashMap<RangeKey, (tower_lsp_server::ls_types::Range, Vec<String>)>;
         let mut range_map: RangeMap = std::collections::HashMap::new();
         for (route_id, records) in linked.route_index.iter() {
             if linked.test_refs.get(route_id).is_none_or(|s| s.is_empty()) {
@@ -25,7 +26,11 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
             if let Some(record) = records.iter().find(|r| &r.handler.uri == uri) {
                 let r = record.handler.range;
                 let key = (r.start.line, r.start.character, r.end.line, r.end.character);
-                range_map.entry(key).or_insert_with(|| (r, vec![])).1.push(route_id.0.clone());
+                range_map
+                    .entry(key)
+                    .or_insert_with(|| (r, vec![]))
+                    .1
+                    .push(route_id.0.clone());
             }
         }
         for (range, route_ids) in range_map.into_values() {
@@ -60,15 +65,20 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
     // dep_name → all usage locations across the workspace: direct Depends() call sites
     // plus handler params typed with a dep type alias (e.g. `db: DbSession`).
     let dep_usage_locs: std::collections::HashMap<String, Vec<(String, Range)>> = {
-        let mut map: std::collections::HashMap<String, Vec<(String, Range)>> = std::collections::HashMap::new();
+        let mut map: std::collections::HashMap<String, Vec<(String, Range)>> =
+            std::collections::HashMap::new();
         for entry in state.file_facts.iter() {
             let uri_str = entry.key().as_str().to_owned();
             for dep_ref in &entry.value().dep_refs {
-                map.entry(dep_ref.name.clone()).or_default().push((uri_str.clone(), dep_ref.range));
+                map.entry(dep_ref.name.clone())
+                    .or_default()
+                    .push((uri_str.clone(), dep_ref.range));
             }
             for param in &entry.value().plain_typed_params {
                 if let Some(dep_fn) = alias_to_dep.get(&param.type_name) {
-                    map.entry(dep_fn.clone()).or_default().push((uri_str.clone(), param.annotation_range));
+                    map.entry(dep_fn.clone())
+                        .or_default()
+                        .push((uri_str.clone(), param.annotation_range));
                 }
             }
         }
@@ -77,11 +87,14 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
 
     // alias_type_name → all plain-typed param annotation locations across the workspace.
     let alias_usage_locs: std::collections::HashMap<String, Vec<(String, Range)>> = {
-        let mut map: std::collections::HashMap<String, Vec<(String, Range)>> = std::collections::HashMap::new();
+        let mut map: std::collections::HashMap<String, Vec<(String, Range)>> =
+            std::collections::HashMap::new();
         for entry in state.file_facts.iter() {
             let uri_str = entry.key().as_str().to_owned();
             for param in &entry.value().plain_typed_params {
-                map.entry(param.type_name.clone()).or_default().push((uri_str.clone(), param.annotation_range));
+                map.entry(param.type_name.clone())
+                    .or_default()
+                    .push((uri_str.clone(), param.annotation_range));
             }
         }
         map
@@ -93,7 +106,10 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
         let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for records in linked.route_index.values() {
             if let Some(record) = records.first() {
-                let model = record.response_model.as_ref().or(record.return_annotation.as_ref());
+                let model = record
+                    .response_model
+                    .as_ref()
+                    .or(record.return_annotation.as_ref());
                 if let Some(name) = model {
                     *counts.entry(name.clone()).or_default() += 1;
                 }
@@ -105,7 +121,10 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
     if let Some(facts) = state.file_facts.get(uri) {
         // ── 2. Dependency usage count ─────────────────────────────────────────
         for dep_def in &facts.dep_defs {
-            let refs = dep_usage_locs.get(&dep_def.name).map(Vec::as_slice).unwrap_or(&[]);
+            let refs = dep_usage_locs
+                .get(&dep_def.name)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
             if refs.len() < 2 {
                 continue;
             }
@@ -118,7 +137,9 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
                     arguments: Some(vec![
                         serde_json::Value::String(dep_def.node_id.uri.as_str().to_owned()),
                         serde_json::json!({"line": pos.line, "character": pos.character}),
-                        serde_json::Value::Array(refs.iter().map(|(u, r)| loc_json(u, r)).collect()),
+                        serde_json::Value::Array(
+                            refs.iter().map(|(u, r)| loc_json(u, r)).collect(),
+                        ),
                     ]),
                 }),
                 data: None,
@@ -127,7 +148,11 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
 
         // ── 3. Router route count ─────────────────────────────────────────────
         for router_decl in &facts.routers {
-            let n = facts.routes.iter().filter(|r| r.object_name == router_decl.name).count();
+            let n = facts
+                .routes
+                .iter()
+                .filter(|r| r.object_name == router_decl.name)
+                .count();
             if n == 0 {
                 continue;
             }
@@ -164,7 +189,10 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
             if model_fact.is_settings {
                 continue; // BaseSettings subclasses are not response models
             }
-            let n = model_route_counts.get(&model_fact.name).copied().unwrap_or(0);
+            let n = model_route_counts
+                .get(&model_fact.name)
+                .copied()
+                .unwrap_or(0);
             if n == 0 {
                 continue;
             }
@@ -206,7 +234,10 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
         // Shows "N usages" above `DbSession = Annotated[T, Depends(fn)]` lines,
         // counting handler params that reference the alias as a plain type annotation.
         for (alias_name, def_range) in &facts.dep_type_alias_ranges {
-            let refs = alias_usage_locs.get(alias_name).map(Vec::as_slice).unwrap_or(&[]);
+            let refs = alias_usage_locs
+                .get(alias_name)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
             if refs.len() < 2 {
                 continue;
             }
@@ -219,7 +250,9 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
                     arguments: Some(vec![
                         serde_json::Value::String(uri.as_str().to_owned()),
                         serde_json::json!({"line": pos.line, "character": pos.character}),
-                        serde_json::Value::Array(refs.iter().map(|(u, r)| loc_json(u, r)).collect()),
+                        serde_json::Value::Array(
+                            refs.iter().map(|(u, r)| loc_json(u, r)).collect(),
+                        ),
                     ]),
                 }),
                 data: None,
@@ -257,7 +290,12 @@ pub fn resolve(state: &WorkspaceState, lens: CodeLens) -> CodeLens {
     let n: usize = lens_data
         .route_ids
         .iter()
-        .map(|id| linked.test_refs.get(&RouteId(id.clone())).map_or(0, |s| s.len()))
+        .map(|id| {
+            linked
+                .test_refs
+                .get(&RouteId(id.clone()))
+                .map_or(0, |s| s.len())
+        })
         .sum();
 
     if n == 0 {
@@ -285,7 +323,7 @@ mod tests {
 
     use crate::config::ResolvedConfig;
     use crate::state::{
-        ClientCallSite, DepDef, DepRef, DepGraph, FileFacts, Linked, Location as StateLocation,
+        ClientCallSite, DepDef, DepGraph, DepRef, FileFacts, Linked, Location as StateLocation,
         Method, ModelFact, NodeId, PrefixValue, ResolvedPath, RouteFact, RouteId, RouteRecord,
         RouterDecl,
     };
@@ -306,7 +344,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(path.to_owned()),
             decorator_path: path.to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: handler_range },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: handler_range,
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,
@@ -334,17 +375,29 @@ mod tests {
         ClientCallSite {
             method: Method::Get,
             path: "/path".to_owned(),
-            location: StateLocation { uri: uri.clone(), range: Range::default() },
+            location: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
         }
     }
 
     #[test]
     fn no_lenses_when_no_test_refs() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let handler_range = Range { start: Position::new(2, 4), end: Position::new(2, 14) };
+        let handler_range = Range {
+            start: Position::new(2, 4),
+            end: Position::new(2, 14),
+        };
 
         let state = make_state();
-        let (rid, record) = make_route("app.get_items:GET", "get_items", "/items", &uri, handler_range);
+        let (rid, record) = make_route(
+            "app.get_items:GET",
+            "get_items",
+            "/items",
+            &uri,
+            handler_range,
+        );
 
         let mut linked = Linked::default();
         linked.route_index.insert(rid, vec![record]);
@@ -357,20 +410,34 @@ mod tests {
     fn lens_emitted_for_route_with_test_refs() {
         let uri: Uri = "file:///app.py".parse().unwrap();
         let uri_test: Uri = "file:///tests/test_api.py".parse().unwrap();
-        let handler_range = Range { start: Position::new(5, 4), end: Position::new(5, 16) };
+        let handler_range = Range {
+            start: Position::new(5, 4),
+            end: Position::new(5, 16),
+        };
 
         let state = make_state();
-        let (rid, record) = make_route("app.list_users:GET", "list_users", "/users", &uri, handler_range);
+        let (rid, record) = make_route(
+            "app.list_users:GET",
+            "list_users",
+            "/users",
+            &uri,
+            handler_range,
+        );
 
         let mut linked = Linked::default();
-        linked.test_refs.insert(rid.clone(), vec![make_site(&uri_test)]);
+        linked
+            .test_refs
+            .insert(rid.clone(), vec![make_site(&uri_test)]);
         linked.route_index.insert(rid, vec![record]);
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
         assert_eq!(lenses.len(), 1);
         assert_eq!(lenses[0].range, handler_range);
-        assert!(lenses[0].command.is_none(), "initial lens must be unresolved");
+        assert!(
+            lenses[0].command.is_none(),
+            "initial lens must be unresolved"
+        );
         assert!(lenses[0].data.is_some());
     }
 
@@ -378,13 +445,18 @@ mod tests {
     fn resolve_fills_command_with_count() {
         let uri: Uri = "file:///app.py".parse().unwrap();
         let uri_test: Uri = "file:///tests/test_api.py".parse().unwrap();
-        let handler_range = Range { start: Position::new(3, 4), end: Position::new(3, 12) };
+        let handler_range = Range {
+            start: Position::new(3, 4),
+            end: Position::new(3, 12),
+        };
 
         let state = make_state();
         let (rid, record) = make_route("app.ping:GET", "ping", "/ping", &uri, handler_range);
 
         let mut linked = Linked::default();
-        linked.test_refs.insert(rid.clone(), vec![make_site(&uri_test)]);
+        linked
+            .test_refs
+            .insert(rid.clone(), vec![make_site(&uri_test)]);
         linked.route_index.insert(rid, vec![record]);
         state.linked.store(Arc::new(linked));
 
@@ -399,10 +471,19 @@ mod tests {
     fn resolve_plural_for_multiple_refs() {
         let uri: Uri = "file:///app.py".parse().unwrap();
         let uri_test: Uri = "file:///tests/test_api.py".parse().unwrap();
-        let handler_range = Range { start: Position::new(7, 4), end: Position::new(7, 18) };
+        let handler_range = Range {
+            start: Position::new(7, 4),
+            end: Position::new(7, 18),
+        };
 
         let state = make_state();
-        let (rid, record) = make_route("app.get_item:GET", "get_item", "/items/{id}", &uri, handler_range);
+        let (rid, record) = make_route(
+            "app.get_item:GET",
+            "get_item",
+            "/items/{id}",
+            &uri,
+            handler_range,
+        );
 
         let sites: Vec<ClientCallSite> = (0..3).map(|_| make_site(&uri_test)).collect();
 
@@ -422,22 +503,43 @@ mod tests {
         // The test reference count must be 1, not 2.
         let uri: Uri = "file:///app.py".parse().unwrap();
         let uri_test: Uri = "file:///tests/test_api.py".parse().unwrap();
-        let handler_range = Range { start: Position::new(3, 4), end: Position::new(3, 12) };
+        let handler_range = Range {
+            start: Position::new(3, 4),
+            end: Position::new(3, 12),
+        };
 
         let state = make_state();
-        let (rid, record1) = make_route("app.get_items:GET", "get_items", "/items", &uri, handler_range);
+        let (rid, record1) = make_route(
+            "app.get_items:GET",
+            "get_items",
+            "/items",
+            &uri,
+            handler_range,
+        );
         // Second mount: same handler, different resolved path (e.g. mounted under /v2)
-        let (_, record2) = make_route("app.get_items:GET", "get_items", "/v2/items", &uri, handler_range);
+        let (_, record2) = make_route(
+            "app.get_items:GET",
+            "get_items",
+            "/v2/items",
+            &uri,
+            handler_range,
+        );
 
         let mut linked = Linked::default();
-        linked.test_refs.insert(rid.clone(), vec![make_site(&uri_test)]);
+        linked
+            .test_refs
+            .insert(rid.clone(), vec![make_site(&uri_test)]);
         linked.route_index.insert(rid, vec![record1, record2]);
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
         assert_eq!(lenses.len(), 1);
         let resolved = resolve(&state, lenses.into_iter().next().unwrap());
-        assert_eq!(resolved.command.unwrap().title, "▶ 1 test reference", "should not double-count multi-mount records");
+        assert_eq!(
+            resolved.command.unwrap().title,
+            "▶ 1 test reference",
+            "should not double-count multi-mount records"
+        );
     }
 
     fn make_dep_def(name: &str, uri: &Uri, row: u32) -> DepDef {
@@ -447,7 +549,10 @@ mod tests {
         };
         DepDef {
             name: name.to_owned(),
-            node_id: NodeId { uri: uri.clone(), range },
+            node_id: NodeId {
+                uri: uri.clone(),
+                range,
+            },
             has_yield: false,
             param_names: vec![],
         }
@@ -501,16 +606,25 @@ mod tests {
         state.file_facts.insert(uri.clone(), facts);
 
         let mut caller_facts = FileFacts::new(caller_uri.clone());
-        caller_facts.dep_refs.push(make_dep_ref("get_db", &caller_uri));
-        caller_facts.dep_refs.push(make_dep_ref("get_db", &caller_uri));
+        caller_facts
+            .dep_refs
+            .push(make_dep_ref("get_db", &caller_uri));
+        caller_facts
+            .dep_refs
+            .push(make_dep_ref("get_db", &caller_uri));
         state.file_facts.insert(caller_uri, caller_facts);
 
         let lenses = code_lenses(&state, &uri);
         let usage_lens = lenses.iter().find(|l| {
-            l.command.as_ref().map_or(false, |c| c.command == "editor.showReferences")
+            l.command
+                .as_ref()
+                .map_or(false, |c| c.command == "editor.showReferences")
         });
         assert!(usage_lens.is_some(), "expected a dep-usage lens");
-        assert_eq!(usage_lens.unwrap().command.as_ref().unwrap().title, "2 usages");
+        assert_eq!(
+            usage_lens.unwrap().command.as_ref().unwrap().title,
+            "2 usages"
+        );
     }
 
     #[test]
@@ -523,7 +637,10 @@ mod tests {
 
         let lenses = code_lenses(&state, &uri);
         assert!(
-            lenses.iter().all(|l| l.command.as_ref().map_or(true, |c| c.command != "editor.showReferences")),
+            lenses.iter().all(|l| l
+                .command
+                .as_ref()
+                .map_or(true, |c| c.command != "editor.showReferences")),
             "no usage lens expected when dep is unreferenced"
         );
     }
@@ -539,7 +656,10 @@ mod tests {
 
         let lenses = code_lenses(&state, &uri);
         assert!(
-            lenses.iter().all(|l| l.command.as_ref().map_or(true, |c| c.command != "editor.showReferences")),
+            lenses.iter().all(|l| l
+                .command
+                .as_ref()
+                .map_or(true, |c| c.command != "editor.showReferences")),
             "single usage must not produce a lens"
         );
     }
@@ -558,8 +678,13 @@ mod tests {
         state.file_facts.insert(caller_uri, caller);
 
         let lenses = code_lenses(&state, &uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "editor.showReferences"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "editor.showReferences")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "2 usages");
     }
@@ -575,7 +700,10 @@ mod tests {
             name: "router".to_owned(),
             prefix: PrefixValue::Literal("/items".to_owned()),
             tags: vec![],
-            range: Range { start: Position::new(2, 0), end: Position::new(2, 6) },
+            range: Range {
+                start: Position::new(2, 0),
+                end: Position::new(2, 6),
+            },
         });
         facts.routes.push(make_route_fact("router"));
         facts.routes.push(make_route_fact("router"));
@@ -583,8 +711,13 @@ mod tests {
         state.file_facts.insert(uri.clone(), facts);
 
         let lenses = code_lenses(&state, &uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "fastapi-lsp.routerRoutes"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "fastapi-lsp.routerRoutes")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "2 routes");
     }
@@ -604,7 +737,10 @@ mod tests {
 
         let lenses = code_lenses(&state, &uri);
         assert!(
-            lenses.iter().all(|l| l.command.as_ref().map_or(true, |c| c.command != "fastapi-lsp.routerRoutes")),
+            lenses.iter().all(|l| l
+                .command
+                .as_ref()
+                .map_or(true, |c| c.command != "fastapi-lsp.routerRoutes")),
             "no route-count lens expected for empty router"
         );
     }
@@ -627,8 +763,13 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "fastapi-lsp.depCycle"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "fastapi-lsp.depCycle")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "⚠ in dependency cycle");
     }
@@ -643,7 +784,10 @@ mod tests {
 
         let lenses = code_lenses(&state, &uri);
         assert!(
-            lenses.iter().all(|l| l.command.as_ref().map_or(true, |c| c.command != "fastapi-lsp.depCycle")),
+            lenses.iter().all(|l| l
+                .command
+                .as_ref()
+                .map_or(true, |c| c.command != "fastapi-lsp.depCycle")),
             "no cycle lens for dep not in any cycle"
         );
     }
@@ -660,7 +804,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/items".to_owned()),
             decorator_path: "/items".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: Some(model.to_owned()),
             response_model_range: None,
@@ -687,7 +834,10 @@ mod tests {
         let mut facts = FileFacts::new(uri.clone());
         facts.models.push(ModelFact {
             name: "Item".to_owned(),
-            range: Range { start: Position::new(4, 0), end: Position::new(4, 4) },
+            range: Range {
+                start: Position::new(4, 0),
+                end: Position::new(4, 4),
+            },
             is_settings: false,
         });
         state.file_facts.insert(uri.clone(), facts);
@@ -700,8 +850,13 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "fastapi-lsp.modelRoutes"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "fastapi-lsp.modelRoutes")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "used in 2 routes");
     }
@@ -730,8 +885,13 @@ mod tests {
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "fastapi-lsp.modelRoutes"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "fastapi-lsp.modelRoutes")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "used in 1 route");
     }
@@ -755,7 +915,10 @@ mod tests {
 
         let lenses = code_lenses(&state, &uri);
         assert!(
-            lenses.iter().all(|l| l.command.as_ref().map_or(true, |c| c.command != "fastapi-lsp.modelRoutes")),
+            lenses.iter().all(|l| l
+                .command
+                .as_ref()
+                .map_or(true, |c| c.command != "fastapi-lsp.modelRoutes")),
             "BaseSettings subclass must not get a response-model lens"
         );
     }
@@ -774,16 +937,26 @@ mod tests {
         facts.dep_defs.push(dep_def);
         state.file_facts.insert(uri.clone(), facts);
 
-        let override_loc = StateLocation { uri: test_uri, range: Range::default() };
+        let override_loc = StateLocation {
+            uri: test_uri,
+            range: Range::default(),
+        };
         let mut dep_graph = DepGraph::default();
-        dep_graph.override_sites.insert(node_id, vec![override_loc.clone(), override_loc]);
+        dep_graph
+            .override_sites
+            .insert(node_id, vec![override_loc.clone(), override_loc]);
         let mut linked = Linked::default();
         linked.dep_graph = dep_graph;
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "fastapi-lsp.depOverrides"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "fastapi-lsp.depOverrides")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "2 test overrides");
     }
@@ -801,16 +974,25 @@ mod tests {
         state.file_facts.insert(uri.clone(), facts);
 
         let mut dep_graph = DepGraph::default();
-        dep_graph.override_sites.insert(node_id, vec![
-            StateLocation { uri: test_uri, range: Range::default() },
-        ]);
+        dep_graph.override_sites.insert(
+            node_id,
+            vec![StateLocation {
+                uri: test_uri,
+                range: Range::default(),
+            }],
+        );
         let mut linked = Linked::default();
         linked.dep_graph = dep_graph;
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "fastapi-lsp.depOverrides"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "fastapi-lsp.depOverrides")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "1 test override");
     }
@@ -825,25 +1007,40 @@ mod tests {
         let handler_uri: Uri = "file:///app/features/projects/router.py".parse().unwrap();
         let state = make_state();
 
-        let alias_range = Range { start: Position::new(11, 0), end: Position::new(11, 60) };
+        let alias_range = Range {
+            start: Position::new(11, 0),
+            end: Position::new(11, 60),
+        };
         let mut alias_facts = FileFacts::new(alias_uri.clone());
-        alias_facts.dep_type_alias_ranges.insert("DbSession".to_owned(), alias_range);
+        alias_facts
+            .dep_type_alias_ranges
+            .insert("DbSession".to_owned(), alias_range);
         state.file_facts.insert(alias_uri.clone(), alias_facts);
 
         let mut handler_facts = FileFacts::new(handler_uri.clone());
         for i in 0..12u32 {
-            handler_facts.plain_typed_params.push(crate::state::PlainTypedParam {
-                containing_func: "some_handler".to_owned(),
-                param_name: "dbsession".to_owned(),
-                type_name: "DbSession".to_owned(),
-                annotation_range: Range { start: Position::new(i + 10, 15), end: Position::new(i + 10, 24) },
-            });
+            handler_facts
+                .plain_typed_params
+                .push(crate::state::PlainTypedParam {
+                    containing_func: "some_handler".to_owned(),
+                    param_name: "dbsession".to_owned(),
+                    type_name: "DbSession".to_owned(),
+                    annotation_range: Range {
+                        start: Position::new(i + 10, 15),
+                        end: Position::new(i + 10, 24),
+                    },
+                });
         }
         state.file_facts.insert(handler_uri, handler_facts);
 
         let lenses = code_lenses(&state, &alias_uri);
-        let l = lenses.iter()
-            .find(|l| l.command.as_ref().map_or(false, |c| c.command == "editor.showReferences"))
+        let l = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map_or(false, |c| c.command == "editor.showReferences")
+            })
             .unwrap();
         assert_eq!(l.command.as_ref().unwrap().title, "12 usages");
         assert_eq!(l.range, alias_range);
@@ -856,13 +1053,19 @@ mod tests {
         let mut facts = FileFacts::new(uri.clone());
         facts.dep_type_alias_ranges.insert(
             "UnusedAlias".to_owned(),
-            Range { start: Position::new(5, 0), end: Position::new(5, 40) },
+            Range {
+                start: Position::new(5, 0),
+                end: Position::new(5, 40),
+            },
         );
         state.file_facts.insert(uri.clone(), facts);
 
         let lenses = code_lenses(&state, &uri);
         assert!(
-            lenses.iter().all(|l| l.command.as_ref().map_or(true, |c| c.command != "editor.showReferences")),
+            lenses.iter().all(|l| l
+                .command
+                .as_ref()
+                .map_or(true, |c| c.command != "editor.showReferences")),
             "no alias lens when no handler params use it"
         );
     }
@@ -872,18 +1075,25 @@ mod tests {
         let uri: Uri = "file:///app/deps.py".parse().unwrap();
         let state = make_state();
         let mut facts = FileFacts::new(uri.clone());
-        facts.dep_type_alias_ranges.insert("MyAlias".to_owned(), Range::default());
-        facts.plain_typed_params.push(crate::state::PlainTypedParam {
-            containing_func: "handler".to_owned(),
-            param_name: "x".to_owned(),
-            type_name: "MyAlias".to_owned(),
-            annotation_range: Range::default(),
-        });
+        facts
+            .dep_type_alias_ranges
+            .insert("MyAlias".to_owned(), Range::default());
+        facts
+            .plain_typed_params
+            .push(crate::state::PlainTypedParam {
+                containing_func: "handler".to_owned(),
+                param_name: "x".to_owned(),
+                type_name: "MyAlias".to_owned(),
+                annotation_range: Range::default(),
+            });
         state.file_facts.insert(uri.clone(), facts);
 
         let lenses = code_lenses(&state, &uri);
         assert!(
-            lenses.iter().all(|l| l.command.as_ref().map_or(true, |c| c.command != "editor.showReferences")),
+            lenses.iter().all(|l| l
+                .command
+                .as_ref()
+                .map_or(true, |c| c.command != "editor.showReferences")),
             "single usage must not produce an alias lens"
         );
     }
@@ -892,21 +1102,33 @@ mod tests {
     fn deduplicates_lenses_by_handler_range_and_merges_counts() {
         let uri: Uri = "file:///app.py".parse().unwrap();
         let uri_test: Uri = "file:///tests/test_api.py".parse().unwrap();
-        let handler_range = Range { start: Position::new(4, 4), end: Position::new(4, 14) };
+        let handler_range = Range {
+            start: Position::new(4, 4),
+            end: Position::new(4, 14),
+        };
 
         let state = make_state();
         let (rid1, rec1) = make_route("app.handler:GET", "handler", "/path", &uri, handler_range);
         let (rid2, rec2) = make_route("app.handler:POST", "handler", "/path", &uri, handler_range);
 
         let mut linked = Linked::default();
-        linked.test_refs.insert(rid1.clone(), vec![make_site(&uri_test)]);
-        linked.test_refs.insert(rid2.clone(), vec![make_site(&uri_test), make_site(&uri_test)]);
+        linked
+            .test_refs
+            .insert(rid1.clone(), vec![make_site(&uri_test)]);
+        linked.test_refs.insert(
+            rid2.clone(),
+            vec![make_site(&uri_test), make_site(&uri_test)],
+        );
         linked.route_index.insert(rid1, vec![rec1]);
         linked.route_index.insert(rid2, vec![rec2]);
         state.linked.store(Arc::new(linked));
 
         let lenses = code_lenses(&state, &uri);
-        assert_eq!(lenses.len(), 1, "duplicate handler ranges should yield one lens");
+        assert_eq!(
+            lenses.len(),
+            1,
+            "duplicate handler ranges should yield one lens"
+        );
 
         // Resolved count must sum refs from both routes (1 + 2 = 3)
         let resolved = resolve(&state, lenses.into_iter().next().unwrap());

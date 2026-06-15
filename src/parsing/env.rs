@@ -4,11 +4,11 @@ use tree_sitter::{Node, Tree};
 
 use tower_lsp_server::ls_types::{Position, Range};
 
-use crate::state::{
-    EnvFileDecl, EnvLoader, EnvLookupSite, FileFacts, LoaderKind, SettingsClassDecl,
-    SettingsField, range_from_node,
-};
 use super::unquote;
+use crate::state::{
+    EnvFileDecl, EnvLoader, EnvLookupSite, FileFacts, LoaderKind, SettingsClassDecl, SettingsField,
+    range_from_node,
+};
 
 pub fn extract(src: &[u8], tree: &Tree, facts: &mut FileFacts, enc: crate::offset::Encoding) {
     let root = tree.root_node();
@@ -24,9 +24,9 @@ pub fn extract(src: &[u8], tree: &Tree, facts: &mut FileFacts, enc: crate::offse
 
 #[derive(Default)]
 struct Bindings {
-    starlette_configs: Vec<String>,   // names bound to starlette.config.Config(...)
-    environs_envs: Vec<String>,       // names bound to environs.Env(...)
-    dotenv_dicts: Vec<String>,        // names bound to dotenv_values(...)
+    starlette_configs: Vec<String>, // names bound to starlette.config.Config(...)
+    environs_envs: Vec<String>,     // names bound to environs.Env(...)
+    dotenv_dicts: Vec<String>,      // names bound to dotenv_values(...)
 }
 
 fn collect_bindings(src: &[u8], root: Node<'_>) -> Bindings {
@@ -80,14 +80,23 @@ fn callee_short_name<'a>(src: &'a [u8], call: Node<'_>) -> &'a str {
     };
     match func.kind() {
         "identifier" => node_text(src, func),
-        "attribute" => func.child_by_field_name("attribute").map(|n| node_text(src, n)).unwrap_or(""),
+        "attribute" => func
+            .child_by_field_name("attribute")
+            .map(|n| node_text(src, n))
+            .unwrap_or(""),
         _ => "",
     }
 }
 
 // ── Site extraction ───────────────────────────────────────────────────────────
 
-fn walk(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings: &Bindings, enc: crate::offset::Encoding) {
+fn walk(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    bindings: &Bindings,
+    enc: crate::offset::Encoding,
+) {
     match node.kind() {
         "class_definition" => {
             extract_settings_class(src, node, facts, enc);
@@ -106,7 +115,13 @@ fn walk(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings: &Bindings, 
     }
 }
 
-fn recurse(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings: &Bindings, enc: crate::offset::Encoding) {
+fn recurse(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    bindings: &Bindings,
+    enc: crate::offset::Encoding,
+) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         walk(src, child, facts, bindings, enc);
@@ -115,7 +130,13 @@ fn recurse(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings: &Binding
 
 // ── os.environ["KEY"] / os.environ.get("KEY") ────────────────────────────────
 
-fn extract_subscript_site(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings: &Bindings, enc: crate::offset::Encoding) {
+fn extract_subscript_site(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    bindings: &Bindings,
+    enc: crate::offset::Encoding,
+) {
     let value = match node.child_by_field_name("value") {
         Some(n) => n,
         None => return,
@@ -133,7 +154,11 @@ fn extract_subscript_site(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bin
         None => return,
     };
 
-    let loader = if is_os_environ(src, value) { EnvLoader::OsEnviron } else { EnvLoader::DotenvValues };
+    let loader = if is_os_environ(src, value) {
+        EnvLoader::OsEnviron
+    } else {
+        EnvLoader::DotenvValues
+    };
     facts.env_lookups.push(EnvLookupSite {
         key,
         has_default: false,
@@ -148,8 +173,14 @@ fn is_os_environ(src: &[u8], node: Node<'_>) -> bool {
     // Matches `os.environ` or bare `environ`
     match node.kind() {
         "attribute" => {
-            let obj = node.child_by_field_name("object").map(|n| node_text(src, n)).unwrap_or("");
-            let attr = node.child_by_field_name("attribute").map(|n| node_text(src, n)).unwrap_or("");
+            let obj = node
+                .child_by_field_name("object")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
+            let attr = node
+                .child_by_field_name("attribute")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
             obj == "os" && attr == "environ"
         }
         "identifier" => node_text(src, node) == "environ",
@@ -158,12 +189,22 @@ fn is_os_environ(src: &[u8], node: Node<'_>) -> bool {
 }
 
 fn is_dotenv_dict(src: &[u8], node: Node<'_>, bindings: &Bindings) -> bool {
-    node.kind() == "identifier" && bindings.dotenv_dicts.iter().any(|n| n == node_text(src, node))
+    node.kind() == "identifier"
+        && bindings
+            .dotenv_dicts
+            .iter()
+            .any(|n| n == node_text(src, node))
 }
 
 // ── os.environ.get("KEY") / os.getenv("KEY") ─────────────────────────────────
 
-fn extract_call_site(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings: &Bindings, enc: crate::offset::Encoding) {
+fn extract_call_site(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    bindings: &Bindings,
+    enc: crate::offset::Encoding,
+) {
     let func = match node.child_by_field_name("function") {
         Some(n) => n,
         None => return,
@@ -196,7 +237,8 @@ fn extract_call_site(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings
     if let Some(cfg_name) = as_callable_name(src, func) {
         if bindings.starlette_configs.iter().any(|n| n == cfg_name) {
             if let Some(key_node) = first_string_arg_node(args) {
-                let has_default = has_kwarg(src, args, "default") || has_third_positional(src, args);
+                let has_default =
+                    has_kwarg(src, args, "default") || has_third_positional(src, args);
                 facts.env_lookups.push(EnvLookupSite {
                     key: unquote(node_text(src, key_node)).to_owned(),
                     has_default,
@@ -211,17 +253,21 @@ fn extract_call_site(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings
 
         // starlette Config("file") constructor → env file decl
         if cfg_name == "Config"
-            && let Some(path) = first_string_arg(src, args) {
-                facts.env_file_decls.push(EnvFileDecl {
-                    path,
-                    loader: LoaderKind::StarletteConfig,
-                    range: range_from_node(node, src, enc),
-                });
-            }
+            && let Some(path) = first_string_arg(src, args)
+        {
+            facts.env_file_decls.push(EnvFileDecl {
+                path,
+                loader: LoaderKind::StarletteConfig,
+                range: range_from_node(node, src, enc),
+            });
+        }
 
         // environs Env instance method: env.str("KEY"), env.int("KEY"), env("KEY")
         if let Some(method) = as_method_name(src, func) {
-            let obj = func.child_by_field_name("object").map(|n| node_text(src, n)).unwrap_or("");
+            let obj = func
+                .child_by_field_name("object")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
             if bindings.environs_envs.iter().any(|n| n == obj) {
                 let is_lookup = matches!(
                     method,
@@ -270,7 +316,10 @@ fn extract_call_site(src: &[u8], node: Node<'_>, facts: &mut FileFacts, bindings
 fn is_os_get(src: &[u8], func: Node<'_>) -> bool {
     match func.kind() {
         "attribute" => {
-            let attr = func.child_by_field_name("attribute").map(|n| node_text(src, n)).unwrap_or("");
+            let attr = func
+                .child_by_field_name("attribute")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
             let obj = func.child_by_field_name("object");
             if attr == "getenv" {
                 // os.getenv
@@ -289,14 +338,17 @@ fn is_os_get(src: &[u8], func: Node<'_>) -> bool {
 fn as_callable_name<'a>(src: &'a [u8], func: Node<'_>) -> Option<&'a str> {
     match func.kind() {
         "identifier" => Some(node_text(src, func)),
-        "attribute" => func.child_by_field_name("attribute").map(|n| node_text(src, n)),
+        "attribute" => func
+            .child_by_field_name("attribute")
+            .map(|n| node_text(src, n)),
         _ => None,
     }
 }
 
 fn as_method_name<'a>(src: &'a [u8], func: Node<'_>) -> Option<&'a str> {
     if func.kind() == "attribute" {
-        func.child_by_field_name("attribute").map(|n| node_text(src, n))
+        func.child_by_field_name("attribute")
+            .map(|n| node_text(src, n))
     } else {
         None
     }
@@ -313,7 +365,12 @@ fn key_replace_range(src: &[u8], key_node: Node<'_>) -> Range {
     // Count leading string-prefix chars (f, r, b, etc.)
     let after_prefix = text.trim_start_matches(['f', 'r', 'b', 'F', 'R', 'B']);
     let prefix_chars = (text.len() - after_prefix.len()) as u32;
-    let quote_chars: u32 = if after_prefix.starts_with("\"\"\"") || after_prefix.starts_with("'''") { 3 } else { 1 };
+    let quote_chars: u32 = if after_prefix.starts_with("\"\"\"") || after_prefix.starts_with("'''")
+    {
+        3
+    } else {
+        1
+    };
     let open_offset = prefix_chars + quote_chars;
 
     let start = key_node.start_position();
@@ -375,13 +432,20 @@ fn has_kwarg(src: &[u8], args: Node<'_>, name: &str) -> bool {
 
 // ── BaseSettings class extraction ─────────────────────────────────────────────
 
-fn extract_settings_class(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset::Encoding) {
+fn extract_settings_class(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+) {
     // Check that the class inherits from BaseSettings (or a name containing "Settings")
     let superclasses = node.child_by_field_name("superclasses");
-    let is_settings = superclasses.map(|sc| {
-        let text = node_text(src, sc);
-        text.contains("BaseSettings") || text.contains("Settings")
-    }).unwrap_or(false);
+    let is_settings = superclasses
+        .map(|sc| {
+            let text = node_text(src, sc);
+            text.contains("BaseSettings") || text.contains("Settings")
+        })
+        .unwrap_or(false);
 
     if !is_settings {
         return;
@@ -412,8 +476,12 @@ fn extract_settings_class(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc
                     && (inner.kind() == "assignment" || inner.kind() == "annotated_assignment")
                 {
                     if let Some((prefix, file)) = try_extract_settings_config_dict(src, inner) {
-                        if prefix.is_some() { env_prefix = prefix; }
-                        if file.is_some() { env_file = file; }
+                        if prefix.is_some() {
+                            env_prefix = prefix;
+                        }
+                        if file.is_some() {
+                            env_file = file;
+                        }
                     } else if let Some(field) = extract_settings_field(src, inner, enc) {
                         fields.push(field);
                     }
@@ -421,8 +489,12 @@ fn extract_settings_class(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc
             }
             "assignment" | "annotated_assignment" => {
                 if let Some((prefix, file)) = try_extract_settings_config_dict(src, child) {
-                    if prefix.is_some() { env_prefix = prefix; }
-                    if file.is_some() { env_file = file; }
+                    if prefix.is_some() {
+                        env_prefix = prefix;
+                    }
+                    if file.is_some() {
+                        env_file = file;
+                    }
                 } else if let Some(field) = extract_settings_field(src, child, enc) {
                     fields.push(field);
                 }
@@ -444,12 +516,15 @@ fn extract_settings_class(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc
     }
 
     // Apply prefix to field env_keys
-    let prefixed_fields: Vec<SettingsField> = fields.into_iter().map(|mut f| {
-        if let (Some(k), Some(p)) = (&f.env_key, &env_prefix) {
-            f.env_key = Some(format!("{}{}", p.to_uppercase(), k));
-        }
-        f
-    }).collect();
+    let prefixed_fields: Vec<SettingsField> = fields
+        .into_iter()
+        .map(|mut f| {
+            if let (Some(k), Some(p)) = (&f.env_key, &env_prefix) {
+                f.env_key = Some(format!("{}{}", p.to_uppercase(), k));
+            }
+            f
+        })
+        .collect();
 
     facts.settings_classes.push(SettingsClassDecl {
         class_name,
@@ -482,7 +557,10 @@ fn extract_superclass_names(src: &[u8], superclasses: Node<'_>) -> Vec<String> {
 
 /// If `node` is `model_config = SettingsConfigDict(env_prefix=..., env_file=...)`,
 /// return `(env_prefix, env_file)`. Otherwise return `None`.
-fn try_extract_settings_config_dict(src: &[u8], node: Node<'_>) -> Option<(Option<String>, Option<String>)> {
+fn try_extract_settings_config_dict(
+    src: &[u8],
+    node: Node<'_>,
+) -> Option<(Option<String>, Option<String>)> {
     let left = node.child_by_field_name("left")?;
     if node_text(src, left) != "model_config" {
         return None;
@@ -513,7 +591,11 @@ fn kwarg_string_value(src: &[u8], args: Node<'_>, name: &str) -> Option<String> 
     None
 }
 
-fn extract_settings_field(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<SettingsField> {
+fn extract_settings_field(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<SettingsField> {
     // Handle both `annotated_assignment` (field: type = default) and `assignment`
     let left = node.child_by_field_name("left")?;
     if left.kind() != "identifier" {
@@ -528,8 +610,7 @@ fn extract_settings_field(src: &[u8], node: Node<'_>, enc: crate::offset::Encodi
     let has_default = node.child_by_field_name("right").is_some();
 
     // Check for alias/validation_alias in Field(...) default
-    let env_key = extract_field_alias(src, node)
-        .unwrap_or_else(|| field_name.to_uppercase());
+    let env_key = extract_field_alias(src, node).unwrap_or_else(|| field_name.to_uppercase());
 
     Some(SettingsField {
         field_name,
@@ -554,9 +635,10 @@ fn extract_field_alias(src: &[u8], node: Node<'_>) -> Option<String> {
                 let key = child.child(0).map(|n| node_text(src, n)).unwrap_or("");
                 if key == prefer
                     && let Some(val) = child.child(2)
-                        && let Some(s) = string_value(src, val) {
-                            return Some(s.to_uppercase());
-                        }
+                    && let Some(s) = string_value(src, val)
+                {
+                    return Some(s.to_uppercase());
+                }
             }
         }
     }
@@ -580,10 +662,11 @@ fn extract_legacy_config(src: &[u8], node: Node<'_>) -> (Option<String>, Option<
         } else if child.kind() == "assignment" {
             child
         } else {
-            continue
+            continue;
         };
 
-        let name = stmt.child_by_field_name("left")
+        let name = stmt
+            .child_by_field_name("left")
             .map(|n| node_text(src, n))
             .unwrap_or("");
         let val = stmt.child_by_field_name("right");
@@ -674,7 +757,10 @@ config = Config(".env.prod")
 "#);
         assert_eq!(facts.env_file_decls.len(), 1);
         assert_eq!(facts.env_file_decls[0].path, ".env.prod");
-        assert!(matches!(facts.env_file_decls[0].loader, LoaderKind::StarletteConfig));
+        assert!(matches!(
+            facts.env_file_decls[0].loader,
+            LoaderKind::StarletteConfig
+        ));
     }
 
     #[test]
@@ -703,7 +789,11 @@ class Settings(BaseSettings):
         assert_eq!(facts.settings_classes.len(), 1);
         let cls = &facts.settings_classes[0];
         assert_eq!(cls.class_name, "Settings");
-        let keys: Vec<_> = cls.fields.iter().filter_map(|f| f.env_key.as_deref()).collect();
+        let keys: Vec<_> = cls
+            .fields
+            .iter()
+            .filter_map(|f| f.env_key.as_deref())
+            .collect();
         assert!(keys.contains(&"DATABASE_URL"));
         assert!(keys.contains(&"PORT"));
         let port = cls.fields.iter().find(|f| f.field_name == "port").unwrap();
@@ -723,8 +813,15 @@ class AppSettings(BaseSettings):
         let cls = &facts.settings_classes[0];
         assert_eq!(cls.class_name, "AppSettings");
         assert_eq!(cls.env_prefix.as_deref(), Some("APP_"));
-        let keys: Vec<_> = cls.fields.iter().filter_map(|f| f.env_key.as_deref()).collect();
-        assert!(keys.contains(&"APP_DB_URL"), "expected APP_DB_URL, got {keys:?}");
+        let keys: Vec<_> = cls
+            .fields
+            .iter()
+            .filter_map(|f| f.env_key.as_deref())
+            .collect();
+        assert!(
+            keys.contains(&"APP_DB_URL"),
+            "expected APP_DB_URL, got {keys:?}"
+        );
     }
 
     #[test]
@@ -748,8 +845,15 @@ from starlette.config import Config
 config = Config()
 VALUE = config("MY_KEY", str)
 "#);
-        let lookup = facts.env_lookups.iter().find(|l| l.key == "MY_KEY").unwrap();
-        assert!(!lookup.has_default, "cast arg must not be treated as default");
+        let lookup = facts
+            .env_lookups
+            .iter()
+            .find(|l| l.key == "MY_KEY")
+            .unwrap();
+        assert!(
+            !lookup.has_default,
+            "cast arg must not be treated as default"
+        );
     }
 
     #[test]
@@ -759,7 +863,11 @@ from starlette.config import Config
 config = Config()
 VALUE = config("MY_KEY", default="fallback")
 "#);
-        let lookup = facts.env_lookups.iter().find(|l| l.key == "MY_KEY").unwrap();
+        let lookup = facts
+            .env_lookups
+            .iter()
+            .find(|l| l.key == "MY_KEY")
+            .unwrap();
         assert!(lookup.has_default);
     }
 
@@ -770,7 +878,11 @@ from starlette.config import Config
 config = Config()
 VALUE = config("MY_KEY", str, "fallback")
 "#);
-        let lookup = facts.env_lookups.iter().find(|l| l.key == "MY_KEY").unwrap();
+        let lookup = facts
+            .env_lookups
+            .iter()
+            .find(|l| l.key == "MY_KEY")
+            .unwrap();
         assert!(lookup.has_default);
     }
 

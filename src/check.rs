@@ -28,17 +28,18 @@ pub async fn run(args: CheckArgs) -> i32 {
     let ignore_codes: Vec<&str> = args.ignore.iter().map(|c| c.0.as_str()).collect();
 
     let mut all_diags: Vec<(String, tower_lsp_server::ls_types::Diagnostic)> = vec![];
-    let target_uri_prefix = crate::uri::path_to_uri(&args.path)
-        .map(|u| u.as_str().to_owned());
+    let target_uri_prefix = crate::uri::path_to_uri(&args.path).map(|u| u.as_str().to_owned());
 
     for entry in state.file_facts.iter() {
         let uri = entry.key().clone();
 
         // When PATH is a single file, only report diagnostics for that file.
         if let Some(ref prefix) = target_uri_prefix
-            && args.path.is_file() && uri.as_str() != prefix.as_str() {
-                continue;
-            }
+            && args.path.is_file()
+            && uri.as_str() != prefix.as_str()
+        {
+            continue;
+        }
 
         let diags = crate::features::diagnostics::compute(&state, &uri, &env_ignore);
         for d in diags {
@@ -125,20 +126,36 @@ fn print_text(diags: &[(String, tower_lsp_server::ls_types::Diagnostic)]) {
     } else if errors > 0 && warnings > 0 {
         format!(
             "Found {} error{} and {} warning{}.",
-            errors, if errors == 1 { "" } else { "s" },
-            warnings, if warnings == 1 { "" } else { "s" },
+            errors,
+            if errors == 1 { "" } else { "s" },
+            warnings,
+            if warnings == 1 { "" } else { "s" },
         )
     } else if errors > 0 {
-        format!("Found {} error{}.", errors, if errors == 1 { "" } else { "s" })
+        format!(
+            "Found {} error{}.",
+            errors,
+            if errors == 1 { "" } else { "s" }
+        )
     } else if warnings > 0 {
-        format!("Found {} warning{}.", warnings, if warnings == 1 { "" } else { "s" })
+        format!(
+            "Found {} warning{}.",
+            warnings,
+            if warnings == 1 { "" } else { "s" }
+        )
     } else {
         let n = diags.len();
         format!("Found {} notice{}.", n, if n == 1 { "" } else { "s" })
     };
 
     if color {
-        let summary_color = if errors > 0 { "\x1b[1;31m" } else if warnings > 0 { "\x1b[1;33m" } else { "\x1b[1;32m" };
+        let summary_color = if errors > 0 {
+            "\x1b[1;31m"
+        } else if warnings > 0 {
+            "\x1b[1;33m"
+        } else {
+            "\x1b[1;32m"
+        };
         eprintln!("{}{}\x1b[0m", summary_color, summary);
     } else {
         eprintln!("{}", summary);
@@ -209,12 +226,13 @@ fn code_str(code: &Option<tower_lsp_server::ls_types::NumberOrString>) -> &str {
 pub fn uri_to_display_path(uri: &str) -> String {
     let abs = uri.strip_prefix("file://").unwrap_or(uri);
     if let Ok(cwd) = std::env::current_dir()
-        && let Some(cwd_str) = cwd.to_str() {
-            let prefix = format!("{}/", cwd_str);
-            if let Some(rel) = abs.strip_prefix(prefix.as_str()) {
-                return rel.to_owned();
-            }
+        && let Some(cwd_str) = cwd.to_str()
+    {
+        let prefix = format!("{}/", cwd_str);
+        if let Some(rel) = abs.strip_prefix(prefix.as_str()) {
+            return rel.to_owned();
         }
+    }
     abs.to_owned()
 }
 
@@ -267,18 +285,26 @@ pub async fn scan(state: &Arc<WorkspaceState>, root: &std::path::Path) {
                 if let Some(uri) = crate::uri::path_to_uri(path) {
                     let is_test = crate::server::is_test_file(&uri);
                     let tree = crate::parsing::parse_file(&bytes);
-                    let facts = crate::server::extract_all_facts(&bytes, &tree, &uri, is_test, &client_fixtures, enc);
+                    let facts = crate::server::extract_all_facts(
+                        &bytes,
+                        &tree,
+                        &uri,
+                        is_test,
+                        &client_fixtures,
+                        enc,
+                    );
                     state.file_facts.insert(uri, facts);
                     state.bump_generation();
                 }
             }
         } else if crate::server::is_env_filename(filename) {
             if let Ok(src) = std::fs::read_to_string(path)
-                && let Some(uri) = crate::uri::path_to_uri(path) {
-                    let entries = crate::parsing::dotenv::parse(&src, &uri);
-                    state.env_file_entries.insert(uri, entries);
-                    state.bump_generation();
-                }
+                && let Some(uri) = crate::uri::path_to_uri(path)
+            {
+                let entries = crate::parsing::dotenv::parse(&src, &uri);
+                state.env_file_entries.insert(uri, entries);
+                state.bump_generation();
+            }
         }
     }
 }
@@ -292,7 +318,10 @@ mod tests {
 
     fn make_diag(sev: DiagnosticSeverity, code: &str) -> Diagnostic {
         Diagnostic {
-            range: Range { start: Position::new(0, 0), end: Position::new(0, 10) },
+            range: Range {
+                start: Position::new(0, 0),
+                end: Position::new(0, 10),
+            },
             severity: Some(sev),
             code: Some(NumberOrString::String(code.to_owned())),
             source: Some("fastapi-lsp".to_owned()),
@@ -332,33 +361,45 @@ mod tests {
 
     #[test]
     fn has_findings_true_for_warning() {
-        let diags = vec![
-            ("file:///a.py".to_owned(), make_diag(DiagnosticSeverity::WARNING, "route/duplicate")),
-        ];
+        let diags = vec![(
+            "file:///a.py".to_owned(),
+            make_diag(DiagnosticSeverity::WARNING, "route/duplicate"),
+        )];
         let has = diags.iter().any(|(_, d)| {
-            matches!(d.severity, Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING))
+            matches!(
+                d.severity,
+                Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
+            )
         });
         assert!(has);
     }
 
     #[test]
     fn has_findings_false_for_info_only() {
-        let diags = vec![
-            ("file:///a.py".to_owned(), make_diag(DiagnosticSeverity::INFORMATION, "env/undefined-key")),
-        ];
+        let diags = vec![(
+            "file:///a.py".to_owned(),
+            make_diag(DiagnosticSeverity::INFORMATION, "env/undefined-key"),
+        )];
         let has = diags.iter().any(|(_, d)| {
-            matches!(d.severity, Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING))
+            matches!(
+                d.severity,
+                Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
+            )
         });
         assert!(!has, "Info-only diags should not set has_findings");
     }
 
     #[test]
     fn has_findings_false_for_hint_only() {
-        let diags = vec![
-            ("file:///a.py".to_owned(), make_diag(DiagnosticSeverity::HINT, "route/arg-missing-param")),
-        ];
+        let diags = vec![(
+            "file:///a.py".to_owned(),
+            make_diag(DiagnosticSeverity::HINT, "route/arg-missing-param"),
+        )];
         let has = diags.iter().any(|(_, d)| {
-            matches!(d.severity, Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING))
+            matches!(
+                d.severity,
+                Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
+            )
         });
         assert!(!has, "Hint-only diags should not set has_findings");
     }
@@ -367,8 +408,14 @@ mod tests {
     fn json_output_is_one_object_per_line() {
         // Capture is hard in unit tests; verify the structure is valid JSON.
         let diags = vec![
-            ("file:///a.py".to_owned(), make_diag(DiagnosticSeverity::WARNING, "route/duplicate")),
-            ("file:///b.py".to_owned(), make_diag(DiagnosticSeverity::ERROR, "di/cycle")),
+            (
+                "file:///a.py".to_owned(),
+                make_diag(DiagnosticSeverity::WARNING, "route/duplicate"),
+            ),
+            (
+                "file:///b.py".to_owned(),
+                make_diag(DiagnosticSeverity::ERROR, "di/cycle"),
+            ),
         ];
         // Build the JSON manually for each entry and verify it parses.
         for (uri, d) in &diags {
@@ -386,7 +433,10 @@ mod tests {
             });
             let line = serde_json::to_string(&obj).unwrap();
             // Each line is a single, compact JSON object (no newlines inside)
-            assert!(!line.contains('\n'), "JSON output must be single-line per entry");
+            assert!(
+                !line.contains('\n'),
+                "JSON output must be single-line per entry"
+            );
             // Parses back correctly
             let parsed: serde_json::Value = serde_json::from_str(&line).unwrap();
             assert_eq!(parsed["code"].as_str().unwrap(), code_str(&d.code));

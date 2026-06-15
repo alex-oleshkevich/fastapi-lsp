@@ -104,7 +104,9 @@ impl LanguageServer for FastApiLsp {
             .as_ref()
             .and_then(|g| g.position_encodings.as_deref())
             .and_then(|encs| {
-                encs.iter().find(|e| e.as_str() == "utf-8").map(|_| Encoding::Utf8)
+                encs.iter()
+                    .find(|e| e.as_str() == "utf-8")
+                    .map(|_| Encoding::Utf8)
             })
             .unwrap_or(Encoding::Utf16);
         self.state.set_encoding(enc);
@@ -128,23 +130,51 @@ impl LanguageServer for FastApiLsp {
         let client = self.client.clone();
 
         // Register dynamic file watching only when client supports it (REQ-ARCH-12)
-        if state.file_watch_dynamic_registration.load(std::sync::atomic::Ordering::Relaxed) {
+        if state
+            .file_watch_dynamic_registration
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             let watch_registration = Registration {
                 id: "fastapi-lsp-file-watch".to_owned(),
                 method: "workspace/didChangeWatchedFiles".to_owned(),
                 register_options: serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
                     watchers: vec![
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/*.py".to_owned()), kind: None },
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/fastapi-lsp.toml".to_owned()), kind: None },
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/pyproject.toml".to_owned()), kind: None },
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/.env*".to_owned()), kind: None },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/*.py".to_owned()),
+                            kind: None,
+                        },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/fastapi-lsp.toml".to_owned()),
+                            kind: None,
+                        },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/pyproject.toml".to_owned()),
+                            kind: None,
+                        },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/.env*".to_owned()),
+                            kind: None,
+                        },
                         // Template file extensions — create/delete/rename trigger index rebuild.
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/*.html".to_owned()), kind: None },
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/*.jinja2".to_owned()), kind: None },
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/*.jinja".to_owned()), kind: None },
-                        FileSystemWatcher { glob_pattern: GlobPattern::String("**/*.j2".to_owned()), kind: None },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/*.html".to_owned()),
+                            kind: None,
+                        },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/*.jinja2".to_owned()),
+                            kind: None,
+                        },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/*.jinja".to_owned()),
+                            kind: None,
+                        },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/*.j2".to_owned()),
+                            kind: None,
+                        },
                     ],
-                }).ok(),
+                })
+                .ok(),
             };
             if let Err(e) = client.register_capability(vec![watch_registration]).await {
                 tracing::warn!("dynamic file-watch registration failed: {e}");
@@ -193,13 +223,16 @@ impl LanguageServer for FastApiLsp {
         let _guard = lock.lock().await;
 
         if let Some(stored) = self.state.doc_versions.get(&uri)
-            && version <= *stored {
-                tracing::debug!(
-                    "did_change: ignoring stale version {} for {} (stored {})",
-                    version, uri.as_str(), *stored
-                );
-                return;
-            }
+            && version <= *stored
+        {
+            tracing::debug!(
+                "did_change: ignoring stale version {} for {} (stored {})",
+                version,
+                uri.as_str(),
+                *stored
+            );
+            return;
+        }
         self.state.doc_versions.insert(uri.clone(), version);
 
         // Apply incremental edits in order to the stored source (REQ-ARCH-03)
@@ -207,7 +240,8 @@ impl LanguageServer for FastApiLsp {
         for change in params.content_changes {
             let new_text = if let Some(range) = change.range {
                 // Incremental: replace [range.start, range.end) with change.text
-                let current = self.state
+                let current = self
+                    .state
                     .file_sources
                     .get(&uri)
                     .map(|s| s.clone())
@@ -218,7 +252,9 @@ impl LanguageServer for FastApiLsp {
                 let (start, end) = if start <= end {
                     (start, end)
                 } else {
-                    tracing::warn!("did_change: client sent inverted range, swapping to avoid panic");
+                    tracing::warn!(
+                        "did_change: client sent inverted range, swapping to avoid panic"
+                    );
                     (end, start)
                 };
                 let mut next = current.clone();
@@ -231,7 +267,12 @@ impl LanguageServer for FastApiLsp {
             self.state.file_sources.insert(uri.clone(), new_text);
         }
 
-        let text = self.state.file_sources.get(&uri).map(|s| s.clone()).unwrap_or_default();
+        let text = self
+            .state
+            .file_sources
+            .get(&uri)
+            .map(|s| s.clone())
+            .unwrap_or_default();
         let bytes = text.into_bytes();
         if is_template_file(uri.path().as_str()) {
             index_template_file(&self.state, &uri, &bytes);
@@ -270,10 +311,8 @@ impl LanguageServer for FastApiLsp {
             // Extract workspace root under a short read lock; do FS I/O outside any lock
             let root = self.state.config.read().await.workspace_root.clone();
             let opts = serde_json::to_value(&overlay).unwrap_or_default();
-            let join = tokio::task::spawn_blocking(move || {
-                crate::config::load(&root, Some(opts))
-            })
-            .await;
+            let join =
+                tokio::task::spawn_blocking(move || crate::config::load(&root, Some(opts))).await;
             let updated = match join {
                 Ok(cfg) => cfg,
                 Err(e) => {
@@ -310,9 +349,10 @@ impl LanguageServer for FastApiLsp {
                     }
                     if let Some(path) = crate::uri::uri_to_path(&change.uri)
                         && let Ok(bytes) = std::fs::read(&path)
-                            && has_indicators(&bytes) {
-                                index_file_forced(&self.state, &change.uri, bytes).await;
-                            }
+                        && has_indicators(&bytes)
+                    {
+                        index_file_forced(&self.state, &change.uri, bytes).await;
+                    }
                 }
             }
         }
@@ -333,13 +373,21 @@ impl LanguageServer for FastApiLsp {
         if let Some(h) = crate::features::hover::env_hover(&self.state, uri, pos) {
             return Ok(Some(h));
         }
-        Ok(crate::features::hover::settings_field_hover(&self.state, uri, pos))
+        Ok(crate::features::hover::settings_field_hover(
+            &self.state,
+            uri,
+            pos,
+        ))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
-        Ok(crate::features::completion::completion(&self.state, uri, pos))
+        Ok(crate::features::completion::completion(
+            &self.state,
+            uri,
+            pos,
+        ))
     }
 
     async fn goto_definition(
@@ -359,10 +407,7 @@ impl LanguageServer for FastApiLsp {
         Ok(if locs.is_empty() { None } else { Some(locs) })
     }
 
-    async fn code_action(
-        &self,
-        params: CodeActionParams,
-    ) -> Result<Option<CodeActionResponse>> {
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let (workspace_root, env_ignore) = {
             let cfg = self.state.config.read().await;
             (cfg.workspace_root.clone(), cfg.env_ignore.clone())
@@ -378,7 +423,11 @@ impl LanguageServer for FastApiLsp {
             &env_ignore,
             show_doc,
         );
-        Ok(if actions.is_empty() { None } else { Some(actions) })
+        Ok(if actions.is_empty() {
+            None
+        } else {
+            Some(actions)
+        })
     }
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
@@ -414,26 +463,28 @@ impl LanguageServer for FastApiLsp {
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let uri = &params.text_document.uri;
         let lenses = crate::features::codelens::code_lenses(&self.state, uri);
-        Ok(if lenses.is_empty() { None } else { Some(lenses) })
+        Ok(if lenses.is_empty() {
+            None
+        } else {
+            Some(lenses)
+        })
     }
 
     async fn code_lens_resolve(&self, params: CodeLens) -> Result<CodeLens> {
         Ok(crate::features::codelens::resolve(&self.state, params))
     }
 
-    async fn document_link(
-        &self,
-        params: DocumentLinkParams,
-    ) -> Result<Option<Vec<DocumentLink>>> {
+    async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
         let uri = &params.text_document.uri;
         let links = crate::features::document_link::document_links(&self.state, uri);
-        if links.is_empty() { Ok(None) } else { Ok(Some(links)) }
+        if links.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(links))
+        }
     }
 
-    async fn execute_command(
-        &self,
-        params: ExecuteCommandParams,
-    ) -> Result<Option<LSPAny>> {
+    async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<LSPAny>> {
         match params.command.as_str() {
             "fastapi-lsp.showTestRefs" => {
                 let show_doc = self
@@ -451,48 +502,54 @@ impl LanguageServer for FastApiLsp {
                     'outer: for route_id_str in &route_ids {
                         let route_id = crate::state::RouteId(route_id_str.clone());
                         if let Some(sites) = linked.test_refs.get(&route_id)
-                            && let Some(site) = sites.first() {
-                                let uri = site.location.uri.clone();
-                                let line = site.location.range.start.line;
-                                if uri.as_str().starts_with("file://") {
-                                    let _ = self
-                                        .client
-                                        .show_document(ShowDocumentParams {
-                                            uri,
-                                            external: Some(false),
-                                            take_focus: Some(true),
-                                            selection: Some(Range {
-                                                start: Position::new(line, 0),
-                                                end: Position::new(line, 0),
-                                            }),
-                                        })
-                                        .await;
-                                    break 'outer;
-                                }
+                            && let Some(site) = sites.first()
+                        {
+                            let uri = site.location.uri.clone();
+                            let line = site.location.range.start.line;
+                            if uri.as_str().starts_with("file://") {
+                                let _ = self
+                                    .client
+                                    .show_document(ShowDocumentParams {
+                                        uri,
+                                        external: Some(false),
+                                        take_focus: Some(true),
+                                        selection: Some(Range {
+                                            start: Position::new(line, 0),
+                                            end: Position::new(line, 0),
+                                        }),
+                                    })
+                                    .await;
+                                break 'outer;
                             }
+                        }
                     }
                 }
                 Ok(None)
             }
             "fastapi-lsp.openFileAt" => {
                 let args = &params.arguments;
-                let uri_str = args.first().and_then(|v| v.as_str()).unwrap_or("").to_owned();
+                let uri_str = args
+                    .first()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_owned();
                 let line = args.get(1).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 if let Ok(uri) = uri_str.parse::<Uri>()
-                    && uri.as_str().starts_with("file://") {
-                        let _ = self
-                            .client
-                            .show_document(ShowDocumentParams {
-                                uri,
-                                external: Some(false),
-                                take_focus: Some(true),
-                                selection: Some(Range {
-                                    start: Position::new(line, 0),
-                                    end: Position::new(line, 0),
-                                }),
-                            })
-                            .await;
-                    }
+                    && uri.as_str().starts_with("file://")
+                {
+                    let _ = self
+                        .client
+                        .show_document(ShowDocumentParams {
+                            uri,
+                            external: Some(false),
+                            take_focus: Some(true),
+                            selection: Some(Range {
+                                start: Position::new(line, 0),
+                                end: Position::new(line, 0),
+                            }),
+                        })
+                        .await;
+                }
                 Ok(None)
             }
             _ => Ok(None),
@@ -506,15 +563,15 @@ impl LanguageServer for FastApiLsp {
         let uri = params.text_document.uri;
         let env_ignore = self.state.config.read().await.env_ignore.clone();
         let items = crate::features::diagnostics::compute(&self.state, &uri, &env_ignore);
-        Ok(DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
-            RelatedFullDocumentDiagnosticReport {
+        Ok(DocumentDiagnosticReportResult::Report(
+            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                 related_documents: None,
                 full_document_diagnostic_report: FullDocumentDiagnosticReport {
                     result_id: None,
                     items,
                 },
-            },
-        )))
+            }),
+        ))
     }
 
     async fn workspace_diagnostic(
@@ -539,7 +596,9 @@ impl LanguageServer for FastApiLsp {
                 })
             })
             .collect();
-        Ok(WorkspaceDiagnosticReportResult::Report(WorkspaceDiagnosticReport { items }))
+        Ok(WorkspaceDiagnosticReportResult::Report(
+            WorkspaceDiagnosticReport { items },
+        ))
     }
 }
 
@@ -547,12 +606,14 @@ async fn server_capabilities(state: &WorkspaceState) -> ServerCapabilities {
     let cfg = state.config.read().await;
     let f = &cfg.features;
     ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
-            open_close: Some(true),
-            change: Some(TextDocumentSyncKind::INCREMENTAL),
-            save: Some(TextDocumentSyncSaveOptions::Supported(true)),
-            ..Default::default()
-        })),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::INCREMENTAL),
+                save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                ..Default::default()
+            },
+        )),
         hover_provider: f.hover.then_some(HoverProviderCapability::Simple(true)),
         completion_provider: f.completion.then_some(CompletionOptions {
             trigger_characters: Some(vec![
@@ -567,8 +628,9 @@ async fn server_capabilities(state: &WorkspaceState) -> ServerCapabilities {
         references_provider: f.navigation.then_some(OneOf::Left(true)),
         document_symbol_provider: f.symbols.then_some(OneOf::Left(true)),
         workspace_symbol_provider: f.symbols.then_some(OneOf::Left(true)),
-        code_action_provider: f.code_actions.then_some(
-            CodeActionProviderCapability::Options(CodeActionOptions {
+        code_action_provider: f
+            .code_actions
+            .then_some(CodeActionProviderCapability::Options(CodeActionOptions {
                 code_action_kinds: Some(vec![
                     CodeActionKind::QUICKFIX,
                     CodeActionKind::REFACTOR_EXTRACT,
@@ -576,8 +638,7 @@ async fn server_capabilities(state: &WorkspaceState) -> ServerCapabilities {
                     CodeActionKind::SOURCE,
                 ]),
                 ..Default::default()
-            }),
-        ),
+            })),
         inlay_hint_provider: f.inlay_hints.then_some(OneOf::Left(true)),
         diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
             identifier: Some("fastapi-lsp".to_owned()),
@@ -675,7 +736,10 @@ async fn index_file_forced(state: &WorkspaceState, uri: &Uri, src: Vec<u8>) {
     let (tree, facts, any_indicators) = match join {
         Ok(tf) => tf,
         Err(e) => {
-            tracing::error!("index_file_forced: parser panicked for {}: {e}", uri.as_str());
+            tracing::error!(
+                "index_file_forced: parser panicked for {}: {e}",
+                uri.as_str()
+            );
             return; // keep previous facts for this file intact
         }
     };
@@ -721,7 +785,10 @@ async fn debounce_linker(state: Arc<WorkspaceState>, client: Client) {
             // Snapshot test-ref counts before relink to detect changes (REQ-LENS-03)
             let old_ref_counts: std::collections::HashMap<crate::state::RouteId, usize> = {
                 let old = state.linked.load();
-                old.test_refs.iter().map(|(k, v)| (k.clone(), v.len())).collect()
+                old.test_refs
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.len()))
+                    .collect()
             };
 
             crate::linking::relink(&state).await;
@@ -747,9 +814,10 @@ async fn debounce_linker(state: Arc<WorkspaceState>, client: Client) {
             {
                 let new_linked = state.linked.load();
                 let counts_changed = new_linked.test_refs.len() != old_ref_counts.len()
-                    || new_linked.test_refs.iter().any(|(k, v)| {
-                        old_ref_counts.get(k).copied() != Some(v.len())
-                    });
+                    || new_linked
+                        .test_refs
+                        .iter()
+                        .any(|(k, v)| old_ref_counts.get(k).copied() != Some(v.len()));
                 if counts_changed {
                     let _ = client.code_lens_refresh().await;
                 }
@@ -767,13 +835,18 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
 
     // workDoneProgress: request token, report begin, scan, report end (REQ-ARCH-11)
     let progress_token = NumberOrString::String("fastapi-lsp/scan".to_owned());
-    let supports_progress = state.work_done_progress_supported.load(std::sync::atomic::Ordering::Relaxed);
-    let has_progress = supports_progress && client
-        .send_request::<tower_lsp_server::ls_types::request::WorkDoneProgressCreate>(
-            WorkDoneProgressCreateParams { token: progress_token.clone() },
-        )
-        .await
-        .is_ok();
+    let supports_progress = state
+        .work_done_progress_supported
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let has_progress = supports_progress
+        && client
+            .send_request::<tower_lsp_server::ls_types::request::WorkDoneProgressCreate>(
+                WorkDoneProgressCreateParams {
+                    token: progress_token.clone(),
+                },
+            )
+            .await
+            .is_ok();
 
     if has_progress {
         client
@@ -824,9 +897,10 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
             }
         } else if is_env_filename(filename)
             && let Ok(src) = std::fs::read_to_string(path)
-                && let Some(uri) = crate::uri::path_to_uri(path) {
-                    index_env_file(state, &uri, &src);
-                }
+            && let Some(uri) = crate::uri::path_to_uri(path)
+        {
+            index_env_file(state, &uri, &src);
+        }
     }
 
     crate::linking::relink(state).await;
@@ -837,7 +911,9 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
                 ProgressParams {
                     token: progress_token,
                     value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                        WorkDoneProgressEnd { message: Some("done".to_owned()) },
+                        WorkDoneProgressEnd {
+                            message: Some("done".to_owned()),
+                        },
                     )),
                 },
             )
@@ -854,9 +930,7 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
 }
 
 pub fn is_env_filename(filename: &str) -> bool {
-    filename == ".env"
-        || filename.starts_with(".env.")
-        || filename.ends_with(".env")
+    filename == ".env" || filename.starts_with(".env.") || filename.ends_with(".env")
 }
 
 fn index_env_file(state: &WorkspaceState, uri: &Uri, src: &str) {
@@ -870,7 +944,10 @@ pub async fn run(tcp: Option<(std::net::IpAddr, u16)>) {
         let cfg = config::ResolvedConfig::default_for_root(
             std::env::current_dir().unwrap_or_else(|_| ".".into()),
         );
-        FastApiLsp { client, state: WorkspaceState::new(cfg) }
+        FastApiLsp {
+            client,
+            state: WorkspaceState::new(cfg),
+        }
     })
     .finish();
 
@@ -908,9 +985,9 @@ mod tests {
     use crate::state::WorkspaceState;
 
     fn make_state() -> std::sync::Arc<WorkspaceState> {
-        WorkspaceState::new(ResolvedConfig::default_for_root(
-            std::path::PathBuf::from("/tmp"),
-        ))
+        WorkspaceState::new(ResolvedConfig::default_for_root(std::path::PathBuf::from(
+            "/tmp",
+        )))
     }
 
     fn make_uri(path: &str) -> tower_lsp_server::ls_types::Uri {
@@ -921,9 +998,14 @@ mod tests {
     async fn index_file_forced_inserts_facts_when_indicators_present() {
         let state = make_state();
         let uri = make_uri("/tmp/main.py");
-        let src = b"from fastapi import FastAPI\napp = FastAPI()\n@app.get('/ping')\ndef ping(): pass\n".to_vec();
+        let src =
+            b"from fastapi import FastAPI\napp = FastAPI()\n@app.get('/ping')\ndef ping(): pass\n"
+                .to_vec();
         index_file_forced(&state, &uri, src).await;
-        assert!(state.file_facts.contains_key(&uri), "facts should be inserted when indicators present");
+        assert!(
+            state.file_facts.contains_key(&uri),
+            "facts should be inserted when indicators present"
+        );
     }
 
     #[tokio::test]
@@ -939,7 +1021,10 @@ mod tests {
         // Re-index without indicators (user deleted all FastAPI code)
         let src_without = b"def helper(): return 42\n".to_vec();
         index_file_forced(&state, &uri, src_without).await;
-        assert!(!state.file_facts.contains_key(&uri), "stale facts should be removed when indicators disappear");
+        assert!(
+            !state.file_facts.contains_key(&uri),
+            "stale facts should be removed when indicators disappear"
+        );
     }
 
     #[test]

@@ -11,7 +11,13 @@ pub fn extract(src: &[u8], tree: &Tree, facts: &mut FileFacts, enc: crate::offse
 }
 
 /// `nested`: true when inside a function or class body — module-level alias extraction is skipped.
-fn walk(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset::Encoding, nested: bool) {
+fn walk(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+    nested: bool,
+) {
     match node.kind() {
         "function_definition" => {
             let func_name = node
@@ -52,14 +58,26 @@ fn walk(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset::E
     }
 }
 
-fn extract_params(src: &[u8], params_node: Node<'_>, func_name: &str, facts: &mut FileFacts, enc: crate::offset::Encoding) {
+fn extract_params(
+    src: &[u8],
+    params_node: Node<'_>,
+    func_name: &str,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+) {
     let mut cursor = params_node.walk();
     for param in params_node.children(&mut cursor) {
         match param.kind() {
             "typed_default_parameter" => {
-                let Some(name_node) = param.child_by_field_name("name") else { continue };
-                let Some(type_node) = param.child_by_field_name("type") else { continue };
-                let Some(value_node) = param.child_by_field_name("value") else { continue };
+                let Some(name_node) = param.child_by_field_name("name") else {
+                    continue;
+                };
+                let Some(type_node) = param.child_by_field_name("type") else {
+                    continue;
+                };
+                let Some(value_node) = param.child_by_field_name("value") else {
+                    continue;
+                };
                 if !is_depends_call(src, value_node) {
                     continue;
                 }
@@ -75,13 +93,19 @@ fn extract_params(src: &[u8], params_node: Node<'_>, func_name: &str, facts: &mu
                 });
             }
             "typed_parameter" => {
-                let Some(name_node) = first_identifier(param) else { continue };
+                let Some(name_node) = first_identifier(param) else {
+                    continue;
+                };
                 // child_by_field_name("type") returns a "type" wrapper node; the actual
                 // generic_type is one level inside it.
-                let Some(type_wrapper) = param.child_by_field_name("type") else { continue };
+                let Some(type_wrapper) = param.child_by_field_name("type") else {
+                    continue;
+                };
                 let mut c = type_wrapper.walk();
                 let type_children: Vec<Node> = type_wrapper.children(&mut c).collect();
-                if let Some(generic_node) = type_children.iter().find(|n| n.kind() == "generic_type") {
+                if let Some(generic_node) =
+                    type_children.iter().find(|n| n.kind() == "generic_type")
+                {
                     let Some((type_text, depends_text, has_extra_args)) =
                         extract_annotated_type(src, *generic_node)
                     else {
@@ -97,11 +121,25 @@ fn extract_params(src: &[u8], params_node: Node<'_>, func_name: &str, facts: &mu
                         depends_text,
                         has_extra_args,
                     });
-                } else if let Some(ident_node) = type_children.iter().find(|n| n.kind() == "identifier") {
+                } else if let Some(ident_node) =
+                    type_children.iter().find(|n| n.kind() == "identifier")
+                {
                     let type_name = node_text(src, *ident_node);
                     // Skip Python built-in types — they will never appear in dep_type_aliases.
-                    if !matches!(type_name, "int" | "str" | "bool" | "float" | "bytes"
-                        | "list" | "dict" | "set" | "tuple" | "None" | "type") {
+                    if !matches!(
+                        type_name,
+                        "int"
+                            | "str"
+                            | "bool"
+                            | "float"
+                            | "bytes"
+                            | "list"
+                            | "dict"
+                            | "set"
+                            | "tuple"
+                            | "None"
+                            | "type"
+                    ) {
                         facts.plain_typed_params.push(PlainTypedParam {
                             containing_func: func_name.to_owned(),
                             param_name: node_text(src, name_node).to_owned(),
@@ -118,14 +156,17 @@ fn extract_params(src: &[u8], params_node: Node<'_>, func_name: &str, facts: &mu
 
 fn first_identifier(node: Node<'_>) -> Option<Node<'_>> {
     let mut cursor = node.walk();
-    node.children(&mut cursor).find(|c| c.kind() == "identifier")
+    node.children(&mut cursor)
+        .find(|c| c.kind() == "identifier")
 }
 
 fn is_depends_call(src: &[u8], node: Node<'_>) -> bool {
     if node.kind() != "call" {
         return false;
     }
-    let Some(func) = node.child_by_field_name("function") else { return false };
+    let Some(func) = node.child_by_field_name("function") else {
+        return false;
+    };
     match func.kind() {
         "identifier" => node_text(src, func) == "Depends",
         "attribute" => func
@@ -160,8 +201,10 @@ fn extract_annotated_type(src: &[u8], node: Node<'_>) -> Option<(String, String,
 
     // Collect the "type" children within type_parameter
     let mut c = type_params.walk();
-    let type_args: Vec<Node> =
-        type_params.children(&mut c).filter(|n| n.kind() == "type").collect();
+    let type_args: Vec<Node> = type_params
+        .children(&mut c)
+        .filter(|n| n.kind() == "type")
+        .collect();
     if type_args.len() < 2 {
         return None;
     }
@@ -171,7 +214,9 @@ fn extract_annotated_type(src: &[u8], node: Node<'_>) -> Option<(String, String,
     let depends_arg = type_args[1];
     let has_depends = {
         let mut c = depends_arg.walk();
-        depends_arg.children(&mut c).any(|n| is_depends_call(src, n))
+        depends_arg
+            .children(&mut c)
+            .any(|n| is_depends_call(src, n))
     };
     if !has_depends {
         return None;
@@ -257,15 +302,18 @@ mod tests {
         let uri: Uri = "file:///a.py".parse().unwrap();
         let mut facts = FileFacts::new(uri);
         let tree = parse_file(src.as_bytes());
-        extract(src.as_bytes(), &tree, &mut facts, crate::offset::Encoding::Utf8);
+        extract(
+            src.as_bytes(),
+            &tree,
+            &mut facts,
+            crate::offset::Encoding::Utf8,
+        );
         facts
     }
 
     #[test]
     fn detects_inline_depends_param() {
-        let facts = extract_from(
-            "def get_book(db: Session = Depends(get_db)): pass\n",
-        );
+        let facts = extract_from("def get_book(db: Session = Depends(get_db)): pass\n");
         assert_eq!(facts.annotated_params.len(), 1);
         let p = &facts.annotated_params[0];
         assert_eq!(p.param_name, "db");
@@ -278,9 +326,7 @@ mod tests {
 
     #[test]
     fn detects_annotated_depends_param() {
-        let facts = extract_from(
-            "def get_book(db: Annotated[Session, Depends(get_db)]): pass\n",
-        );
+        let facts = extract_from("def get_book(db: Annotated[Session, Depends(get_db)]): pass\n");
         assert_eq!(facts.annotated_params.len(), 1);
         let p = &facts.annotated_params[0];
         assert_eq!(p.param_name, "db");
@@ -314,28 +360,25 @@ mod tests {
     #[test]
     fn handles_annotated_with_extra_args() {
         // Annotated with more than 2 args — only first two matter, second must be Depends
-        let facts = extract_from(
-            "def f(x: Annotated[int, Depends(fn), Field()]): pass\n",
-        );
+        let facts = extract_from("def f(x: Annotated[int, Depends(fn), Field()]): pass\n");
         // Second subscript arg is Depends(fn) — should still be detected
         assert_eq!(facts.annotated_params.len(), 1);
     }
 
     #[test]
     fn ignores_annotated_without_depends_second_arg() {
-        let facts = extract_from(
-            "def f(x: Annotated[int, Query()]): pass\n",
-        );
+        let facts = extract_from("def f(x: Annotated[int, Query()]): pass\n");
         assert!(facts.annotated_params.is_empty());
     }
 
     #[test]
     fn module_level_annotated_alias_captured_in_dep_type_aliases() {
-        let facts = extract_from(
-            "CurrentProject = Annotated[Project, Depends(fetch_project)]\n",
-        );
+        let facts = extract_from("CurrentProject = Annotated[Project, Depends(fetch_project)]\n");
         assert_eq!(
-            facts.dep_type_aliases.get("CurrentProject").map(|s| s.as_str()),
+            facts
+                .dep_type_aliases
+                .get("CurrentProject")
+                .map(|s| s.as_str()),
             Some("fetch_project"),
             "module-level Annotated alias must be captured in dep_type_aliases"
         );
@@ -347,16 +390,17 @@ mod tests {
             "CurrentProject = typing.Annotated[Project, fastapi.Depends(fetch_project)]\n",
         );
         assert_eq!(
-            facts.dep_type_aliases.get("CurrentProject").map(|s| s.as_str()),
+            facts
+                .dep_type_aliases
+                .get("CurrentProject")
+                .map(|s| s.as_str()),
             Some("fetch_project"),
         );
     }
 
     #[test]
     fn local_assignment_inside_function_not_captured_as_alias() {
-        let facts = extract_from(
-            "def handler():\n    X = Annotated[T, Depends(fn)]\n    pass\n",
-        );
+        let facts = extract_from("def handler():\n    X = Annotated[T, Depends(fn)]\n    pass\n");
         assert!(
             facts.dep_type_aliases.is_empty(),
             "assignments inside function bodies must not populate dep_type_aliases"
@@ -365,9 +409,7 @@ mod tests {
 
     #[test]
     fn class_level_assignment_not_captured_as_alias() {
-        let facts = extract_from(
-            "class Deps:\n    X = Annotated[T, Depends(fn)]\n",
-        );
+        let facts = extract_from("class Deps:\n    X = Annotated[T, Depends(fn)]\n");
         assert!(
             facts.dep_type_aliases.is_empty(),
             "class-level assignments must not populate dep_type_aliases"
@@ -386,12 +428,16 @@ mod tests {
     #[test]
     fn plain_typed_param_captured_when_type_is_identifier() {
         // `project: CurrentProject` — plain identifier type, not Annotated[...]
-        let facts = extract_from(
-            "def view(project: CurrentProject, guard: Guard): pass\n",
-        );
-        assert!(facts.annotated_params.is_empty(), "plain identifier type must not produce annotated_param");
+        let facts = extract_from("def view(project: CurrentProject, guard: Guard): pass\n");
         assert!(
-            facts.plain_typed_params.iter().any(|p| p.param_name == "project" && p.type_name == "CurrentProject"),
+            facts.annotated_params.is_empty(),
+            "plain identifier type must not produce annotated_param"
+        );
+        assert!(
+            facts
+                .plain_typed_params
+                .iter()
+                .any(|p| p.param_name == "project" && p.type_name == "CurrentProject"),
             "plain_typed_params must include project:CurrentProject"
         );
     }

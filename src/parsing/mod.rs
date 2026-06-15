@@ -26,8 +26,7 @@ pub(crate) fn unquote(s: &str) -> String {
     } else if s.len() >= 2
         && !s.starts_with("\"\"\"")
         && !s.starts_with("'''")
-        && ((s.starts_with('"') && s.ends_with('"'))
-            || (s.starts_with('\'') && s.ends_with('\'')))
+        && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
     {
         s[1..s.len() - 1].to_owned()
     } else {

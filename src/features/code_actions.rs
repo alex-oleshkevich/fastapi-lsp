@@ -6,15 +6,15 @@ use tower_lsp_server::ls_types::{
     WorkspaceEdit,
 };
 
-use crate::state::WorkspaceState;
 use crate::features::diagnostics::{
     arg_missing_param_diag, depends_called_diag, edit_distance, handler_param_range,
     is_env_key_ignored, is_param_segment, literal_route_shadowed_by, param_missing_arg_diag,
     param_segment_range, route_shadowed_diag, undefined_key_diag, unknown_response_model_diag,
 };
 use crate::state::ResolvedPath;
-use crate::util::position_in_range;
+use crate::state::WorkspaceState;
 use crate::uri::{path_to_uri, uri_to_path};
+use crate::util::position_in_range;
 
 /// Sentinel line number used for "append to end of file" text edits and
 /// the matching showDocument selection. Editors clamp past-end positions.
@@ -47,7 +47,11 @@ pub fn code_actions(
         .file_facts
         .iter()
         .flat_map(|entry| {
-            entry.dep_defs.iter().map(|d| d.name.clone()).collect::<Vec<_>>()
+            entry
+                .dep_defs
+                .iter()
+                .map(|d| d.name.clone())
+                .collect::<Vec<_>>()
         })
         .collect();
     for dep_ref in &facts.dep_refs {
@@ -105,8 +109,8 @@ pub fn code_actions(
 
         let key = &site.key;
         let key_upper = key.to_uppercase();
-        let in_index = linked.env_index.contains_key(&key_upper)
-            || linked.env_index.contains_key(key);
+        let in_index =
+            linked.env_index.contains_key(&key_upper) || linked.env_index.contains_key(key);
 
         if in_index {
             continue;
@@ -132,25 +136,21 @@ pub fn code_actions(
                     kind: Some(CodeActionKind::QUICKFIX),
                     diagnostics: Some(vec![diag]),
                     edit: Some(WorkspaceEdit {
-                        document_changes: Some(
-                            tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
-                                TextDocumentEdit {
-                                    text_document: OptionalVersionedTextDocumentIdentifier {
-                                        uri: env_uri.clone(),
-                                        version: None,
-                                    },
-                                    edits: vec![
-                                        tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                                            range: Range {
-                                                start: Position::new(APPEND_LINE, 0),
-                                                end: Position::new(APPEND_LINE, 0),
-                                            },
-                                            new_text: format!("{key_upper}=\n"),
-                                        }),
-                                    ],
+                        document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(
+                            vec![TextDocumentEdit {
+                                text_document: OptionalVersionedTextDocumentIdentifier {
+                                    uri: env_uri.clone(),
+                                    version: None,
                                 },
-                            ]),
-                        ),
+                                edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                                    range: Range {
+                                        start: Position::new(APPEND_LINE, 0),
+                                        end: Position::new(APPEND_LINE, 0),
+                                    },
+                                    new_text: format!("{key_upper}=\n"),
+                                })],
+                            }],
+                        )),
                         ..Default::default()
                     }),
                     command: open_cmd,
@@ -162,15 +162,12 @@ pub fn code_actions(
 
             // Action: Copy KEY from .env.example (only when key exists there)
             if let Some(example_uri) = &dot_env_example_uri {
-                let example_value = state
-                    .env_file_entries
-                    .get(example_uri)
-                    .and_then(|entries| {
-                        entries
-                            .iter()
-                            .find(|e| e.key.to_uppercase() == key_upper)
-                            .map(|e| format!("{}={}", e.key, e.value))
-                    });
+                let example_value = state.env_file_entries.get(example_uri).and_then(|entries| {
+                    entries
+                        .iter()
+                        .find(|e| e.key.to_uppercase() == key_upper)
+                        .map(|e| format!("{}={}", e.key, e.value))
+                });
 
                 if let Some(raw_line) = example_value {
                     let action = CodeAction {
@@ -184,15 +181,15 @@ pub fn code_actions(
                                             uri: env_uri.clone(),
                                             version: None,
                                         },
-                                        edits: vec![
-                                            tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                                        edits: vec![tower_lsp_server::ls_types::OneOf::Left(
+                                            TextEdit {
                                                 range: Range {
                                                     start: Position::new(APPEND_LINE, 0),
                                                     end: Position::new(APPEND_LINE, 0),
                                                 },
                                                 new_text: format!("{}\n", raw_line.trim_end()),
-                                            }),
-                                        ],
+                                            },
+                                        )],
                                     },
                                 ]),
                             ),
@@ -248,7 +245,9 @@ pub fn code_actions(
         }
 
         let import_text = format!("from {module_path} import {bare_name}\n");
-        let insert_line = state.file_sources.get(uri)
+        let insert_line = state
+            .file_sources
+            .get(uri)
             .map(|s| import_insert_line(s.as_str()))
             .unwrap_or(0);
         let insert_range = Range {
@@ -288,7 +287,9 @@ pub fn code_actions(
             std::collections::HashMap::new();
         for fe in state.file_facts.iter() {
             for d in &fe.dep_defs {
-                dep_params.entry(d.name.clone()).or_insert_with(|| d.param_names.clone());
+                dep_params
+                    .entry(d.name.clone())
+                    .or_insert_with(|| d.param_names.clone());
             }
         }
 
@@ -331,7 +332,10 @@ pub fn code_actions(
                     } else {
                         format!(", {}: str", path_param.name)
                     };
-                    let insert_range = Range { start: insert_pos, end: insert_pos };
+                    let insert_range = Range {
+                        start: insert_pos,
+                        end: insert_pos,
+                    };
                     let diag = param_missing_arg_diag(&path_param.name, seg_range);
                     let action = CodeAction {
                         title: format!("Add parameter `{}: str`", path_param.name),
@@ -346,7 +350,10 @@ pub fn code_actions(
                                             version: None,
                                         },
                                         edits: vec![tower_lsp_server::ls_types::OneOf::Left(
-                                            TextEdit { range: insert_range, new_text },
+                                            TextEdit {
+                                                range: insert_range,
+                                                new_text,
+                                            },
                                         )],
                                     },
                                 ]),
@@ -416,22 +423,18 @@ pub fn code_actions(
                     kind: Some(CodeActionKind::QUICKFIX),
                     diagnostics: Some(vec![diag.clone()]),
                     edit: Some(WorkspaceEdit {
-                        document_changes: Some(
-                            tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
-                                TextDocumentEdit {
-                                    text_document: OptionalVersionedTextDocumentIdentifier {
-                                        uri: uri.clone(),
-                                        version: None,
-                                    },
-                                    edits: vec![tower_lsp_server::ls_types::OneOf::Left(
-                                        TextEdit {
-                                            range: hp_range,
-                                            new_text: target_param.to_owned(),
-                                        },
-                                    )],
+                        document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(
+                            vec![TextDocumentEdit {
+                                text_document: OptionalVersionedTextDocumentIdentifier {
+                                    uri: uri.clone(),
+                                    version: None,
                                 },
-                            ]),
-                        ),
+                                edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                                    range: hp_range,
+                                    new_text: target_param.to_owned(),
+                                })],
+                            }],
+                        )),
                         ..Default::default()
                     }),
                     is_preferred: Some(true),
@@ -443,7 +446,10 @@ pub fn code_actions(
                 if let Some(pr) = record.path_range {
                     let insert_col = pr.end.character.saturating_sub(1);
                     let insert_pos = Position::new(pr.end.line, insert_col);
-                    let insert_range = Range { start: insert_pos, end: insert_pos };
+                    let insert_range = Range {
+                        start: insert_pos,
+                        end: insert_pos,
+                    };
                     let seg_action = CodeAction {
                         title: format!("Add `/{{{}}}` segment to path", handler_param),
                         kind: Some(CodeActionKind::QUICKFIX),
@@ -480,11 +486,8 @@ pub fn code_actions(
     // Only offered when both handlers are in the same file and file source is available.
     if let Some(source) = state.file_sources.get(uri) {
         let lines: Vec<&str> = source.split_inclusive('\n').collect();
-        let all_records: Vec<&crate::state::RouteRecord> = linked
-            .route_index
-            .values()
-            .flat_map(|v| v.iter())
-            .collect();
+        let all_records: Vec<&crate::state::RouteRecord> =
+            linked.route_index.values().flat_map(|v| v.iter()).collect();
         let file_records: Vec<&crate::state::RouteRecord> = all_records
             .iter()
             .copied()
@@ -501,9 +504,15 @@ pub fn code_actions(
             if rec_path.split('/').any(is_param_segment) {
                 continue;
             }
-            if !position_in_range(range.start, record.handler.range.start, record.handler.range.end)
-                && !position_in_range(range.end, record.handler.range.start, record.handler.range.end)
-            {
+            if !position_in_range(
+                range.start,
+                record.handler.range.start,
+                record.handler.range.end,
+            ) && !position_in_range(
+                range.end,
+                record.handler.range.start,
+                record.handler.range.end,
+            ) {
                 continue;
             }
             // Find the shadowing route (same method, lower ordinal, same file, shadows this literal path)
@@ -519,7 +528,10 @@ pub fn code_actions(
             let shadowed_block = extract_handler_block(&lines, record.handler.range);
             let shadower_block = extract_handler_block(&lines, shadower.handler.range);
             let (Some((sb_start, sb_end, sb_text)), Some((shb_start, shb_end, shb_text))) =
-                (shadowed_block, shadower_block) else { continue };
+                (shadowed_block, shadower_block)
+            else {
+                continue;
+            };
 
             // Swap by replacing in reverse source order (second block first, then first block).
             let (earlier_start, earlier_end, earlier_new, later_start, later_end, later_new) =
@@ -591,7 +603,10 @@ pub fn code_actions(
             (ap.annotation_range.start, ap.annotation_range.end)
         } else {
             // Inline style: the editable span covers type annotation + `= Depends(...)`
-            let default_end = ap.default_range.map(|r| r.end).unwrap_or(ap.annotation_range.end);
+            let default_end = ap
+                .default_range
+                .map(|r| r.end)
+                .unwrap_or(ap.annotation_range.end);
             (ap.annotation_range.start, default_end)
         };
         if !position_in_range(range.start, action_range_start, action_range_end)
@@ -634,15 +649,22 @@ pub fn code_actions(
                 start: ap.annotation_range.start,
                 end: default_range.end,
             };
-            let needs_annotated_import = !facts.imported_names.iter()
+            let needs_annotated_import = !facts
+                .imported_names
+                .iter()
                 .any(|n| n == "Annotated" || n == "*");
             let mut edits = vec![];
             if needs_annotated_import {
-                let ins_line = state.file_sources.get(uri)
+                let ins_line = state
+                    .file_sources
+                    .get(uri)
                     .map(|s| import_insert_line(s.as_str()))
                     .unwrap_or(0);
                 edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                    range: Range { start: Position::new(ins_line, 0), end: Position::new(ins_line, 0) },
+                    range: Range {
+                        start: Position::new(ins_line, 0),
+                        end: Position::new(ins_line, 0),
+                    },
                     new_text: "from typing import Annotated\n".to_owned(),
                 }));
             }
@@ -680,14 +702,23 @@ pub fn code_actions(
             if !ap.is_annotated {
                 continue;
             }
-            if !position_in_range(range.start, ap.annotation_range.start, ap.annotation_range.end)
-                && !position_in_range(range.end, ap.annotation_range.start, ap.annotation_range.end)
-            {
+            if !position_in_range(
+                range.start,
+                ap.annotation_range.start,
+                ap.annotation_range.end,
+            ) && !position_in_range(
+                range.end,
+                ap.annotation_range.start,
+                ap.annotation_range.end,
+            ) {
                 continue;
             }
             // Gate: dep name is actually defined somewhere in the workspace.
             // Extract fn name from "Depends(fn)" or "fastapi.Depends(fn)" by splitting on "(".
-            let dep_name_in_depends = ap.depends_text.split_once('(').map(|x| x.1)
+            let dep_name_in_depends = ap
+                .depends_text
+                .split_once('(')
+                .map(|x| x.1)
                 .and_then(|s| s.strip_suffix(')'))
                 .unwrap_or("");
             if dep_name_in_depends.is_empty() || !defined_deps.contains(dep_name_in_depends) {
@@ -753,8 +784,16 @@ pub fn code_actions(
                 })
                 .collect();
             repl_edits.sort_by(|a, b| {
-                let la = if let tower_lsp_server::ls_types::OneOf::Left(te) = a { te.range.start.line } else { 0 };
-                let lb = if let tower_lsp_server::ls_types::OneOf::Left(te) = b { te.range.start.line } else { 0 };
+                let la = if let tower_lsp_server::ls_types::OneOf::Left(te) = a {
+                    te.range.start.line
+                } else {
+                    0
+                };
+                let lb = if let tower_lsp_server::ls_types::OneOf::Left(te) = b {
+                    te.range.start.line
+                } else {
+                    0
+                };
                 lb.cmp(&la)
             });
 
@@ -775,15 +814,15 @@ pub fn code_actions(
                 title: format!("Extract to named dependency `{alias_name}`"),
                 kind: Some(CodeActionKind::REFACTOR_EXTRACT),
                 edit: Some(WorkspaceEdit {
-                    document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
-                        TextDocumentEdit {
+                    document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(
+                        vec![TextDocumentEdit {
                             text_document: OptionalVersionedTextDocumentIdentifier {
                                 uri: uri.clone(),
                                 version: None,
                             },
                             edits: all_edits,
-                        },
-                    ])),
+                        }],
+                    )),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -795,22 +834,22 @@ pub fn code_actions(
             let mut workspace_doc_edits: Vec<TextDocumentEdit> = vec![];
 
             // Determine alias target file (deps.py/dependencies.py in same dir, or current file)
-            let alias_target_uri = find_dependency_file(uri, state)
-                .unwrap_or_else(|| uri.clone());
+            let alias_target_uri = find_dependency_file(uri, state).unwrap_or_else(|| uri.clone());
             let alias_in_external = alias_target_uri != *uri;
 
             // Collect per-file annotation replacements across the workspace
             let mut alias_file_uris: Vec<tower_lsp_server::ls_types::Uri> = vec![];
-            let mut sorted_file_keys: Vec<tower_lsp_server::ls_types::Uri> = state
-                .file_facts
-                .iter()
-                .map(|e| e.key().clone())
-                .collect();
+            let mut sorted_file_keys: Vec<tower_lsp_server::ls_types::Uri> =
+                state.file_facts.iter().map(|e| e.key().clone()).collect();
             sorted_file_keys.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
             for file_uri in &sorted_file_keys {
-                let Some(file_source) = state.file_sources.get(file_uri).map(|s| s.clone()) else { continue };
-                let Some(file_facts) = state.file_facts.get(file_uri) else { continue };
+                let Some(file_source) = state.file_sources.get(file_uri).map(|s| s.clone()) else {
+                    continue;
+                };
+                let Some(file_facts) = state.file_facts.get(file_uri) else {
+                    continue;
+                };
 
                 let ws_matches: Vec<&crate::state::AnnotatedParam> = file_facts
                     .annotated_params
@@ -840,20 +879,33 @@ pub fn code_actions(
                     })
                     .collect();
                 file_repl.sort_by(|a, b| {
-                    let la = if let tower_lsp_server::ls_types::OneOf::Left(te) = a { te.range.start.line } else { 0 };
-                    let lb = if let tower_lsp_server::ls_types::OneOf::Left(te) = b { te.range.start.line } else { 0 };
+                    let la = if let tower_lsp_server::ls_types::OneOf::Left(te) = a {
+                        te.range.start.line
+                    } else {
+                        0
+                    };
+                    let lb = if let tower_lsp_server::ls_types::OneOf::Left(te) = b {
+                        te.range.start.line
+                    } else {
+                        0
+                    };
                     lb.cmp(&la)
                 });
 
                 // Add import when the alias lives in an external file
-                if alias_in_external && file_uri != &alias_target_uri
-                    && let Some(module_path) = uri_to_module_path(&alias_target_uri, workspace_root) {
-                        let import_text = format!("from {module_path} import {alias_name}\n");
-                        file_repl.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                            range: Range { start: Position::new(0, 0), end: Position::new(0, 0) },
-                            new_text: import_text,
-                        }));
-                    }
+                if alias_in_external
+                    && file_uri != &alias_target_uri
+                    && let Some(module_path) = uri_to_module_path(&alias_target_uri, workspace_root)
+                {
+                    let import_text = format!("from {module_path} import {alias_name}\n");
+                    file_repl.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                        range: Range {
+                            start: Position::new(0, 0),
+                            end: Position::new(0, 0),
+                        },
+                        new_text: import_text,
+                    }));
+                }
                 workspace_doc_edits.push(TextDocumentEdit {
                     text_document: OptionalVersionedTextDocumentIdentifier {
                         uri: file_uri.clone(),
@@ -881,14 +933,18 @@ pub fn code_actions(
                 });
             } else {
                 // Insert alias into the current file (uri), not whichever file sorted first
-                if let Some(doc) = workspace_doc_edits.iter_mut().find(|d| &d.text_document.uri == uri) {
-                    doc.edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                        range: Range {
-                            start: Position::new(insert_line as u32, 0),
-                            end: Position::new(insert_line as u32, 0),
-                        },
-                        new_text: format!("{alias_name} = {canonical}\n\n"),
-                    }));
+                if let Some(doc) = workspace_doc_edits
+                    .iter_mut()
+                    .find(|d| &d.text_document.uri == uri)
+                {
+                    doc.edits
+                        .push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                            range: Range {
+                                start: Position::new(insert_line as u32, 0),
+                                end: Position::new(insert_line as u32, 0),
+                            },
+                            new_text: format!("{alias_name} = {canonical}\n\n"),
+                        }));
                 }
             }
 
@@ -897,7 +953,9 @@ pub fn code_actions(
                     title: format!("Extract to named dependency `{alias_name}` (workspace)"),
                     kind: Some(CodeActionKind::REFACTOR_EXTRACT),
                     edit: Some(WorkspaceEdit {
-                        document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(workspace_doc_edits)),
+                        document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(
+                            workspace_doc_edits,
+                        )),
                         ..Default::default()
                     }),
                     ..Default::default()
@@ -916,12 +974,18 @@ pub fn code_actions(
         .flat_map(|v| v.iter())
         .filter(|r| &r.handler.uri == uri)
     {
-        let Some(ref model_name) = record.response_model else { continue };
+        let Some(ref model_name) = record.response_model else {
+            continue;
+        };
         let bare_name = model_name.rsplit('.').next().unwrap_or(model_name.as_str());
 
-        if !is_camel_case(bare_name) { continue; }
+        if !is_camel_case(bare_name) {
+            continue;
+        }
         // Candidates exist → the "import" action above handles it
-        if linked.model_index.contains_key(bare_name) { continue; }
+        if linked.model_index.contains_key(bare_name) {
+            continue;
+        }
         if facts.imported_names.iter().any(|n| n == bare_name)
             || facts.imported_names.contains(&"*".to_owned())
         {
@@ -935,12 +999,9 @@ pub fn code_actions(
             continue;
         }
 
-        let Some(target_uri) = resolve_create_model_target(
-            &facts.imported_from,
-            uri,
-            workspace_root,
-            state,
-        ) else {
+        let Some(target_uri) =
+            resolve_create_model_target(&facts.imported_from, uri, workspace_root, state)
+        else {
             continue;
         };
 
@@ -950,18 +1011,16 @@ pub fn code_actions(
 
         // Creating a new file requires the client to advertise ResourceOperationKind::Create
         if !target_exists
-            && !state.can_create_files.load(std::sync::atomic::Ordering::Relaxed)
+            && !state
+                .can_create_files
+                .load(std::sync::atomic::Ordering::Relaxed)
         {
             continue;
         }
 
-        if let Some(action) = build_create_model_action(
-            bare_name,
-            &target_uri,
-            workspace_root,
-            state,
-            target_exists,
-        ) {
+        if let Some(action) =
+            build_create_model_action(bare_name, &target_uri, workspace_root, state, target_exists)
+        {
             actions.push(CodeActionOrCommand::CodeAction(action));
         }
     }
@@ -996,21 +1055,27 @@ pub fn code_actions(
     // URL-preservation proof: for direct routes, resolved_path == decorator_path, so
     // stripping the prefix and emitting prefix + stripped_path == original is always valid.
     if let Some(source) = state.file_sources.get(uri).map(|s| s.clone())
-        && let Some(action) = extract_router_action(
-            uri, range, &facts, &linked, state, workspace_root, &source,
-        ) {
-            actions.push(CodeActionOrCommand::CodeAction(action));
-        }
+        && let Some(action) =
+            extract_router_action(uri, range, &facts, &linked, state, workspace_root, &source)
+    {
+        actions.push(CodeActionOrCommand::CodeAction(action));
+    }
 
     // tpl/missing-template quick fixes (REQ-TPL-05):
     //   "Change to <near-miss>" and "Create <path>" (gated on can_create_files).
-    let can_create = state.can_create_files.load(std::sync::atomic::Ordering::Relaxed);
+    let can_create = state
+        .can_create_files
+        .load(std::sync::atomic::Ordering::Relaxed);
     let cfg_guard = state.config.try_read();
     let template_roots: Vec<std::path::PathBuf> = cfg_guard
         .as_ref()
         .map(|c| c.template_roots.clone())
         .unwrap_or_default();
-    let source_for_tpl = state.file_sources.get(uri).map(|s| s.clone()).unwrap_or_default();
+    let source_for_tpl = state
+        .file_sources
+        .get(uri)
+        .map(|s| s.clone())
+        .unwrap_or_default();
     let source_lines: Vec<&str> = source_for_tpl.lines().collect();
     for tpl in &facts.templates {
         if !position_in_range(range.start, tpl.range.start, tpl.range.end)
@@ -1034,10 +1099,7 @@ pub fn code_actions(
         }
 
         let inner_range = Range {
-            start: Position::new(
-                tpl.range.start.line,
-                tpl.range.start.character + 1,
-            ),
+            start: Position::new(tpl.range.start.line, tpl.range.start.character + 1),
             end: Position::new(
                 tpl.range.end.line,
                 tpl.range.end.character.saturating_sub(1),
@@ -1047,32 +1109,34 @@ pub fn code_actions(
         let index_keys: Vec<&str> = linked.template_index.keys().map(|k| k.as_str()).collect();
 
         // "Change to <near-miss>": replace the string content with the suggestion.
-        if let Some(suggestion) = index_keys.iter().copied()
+        if let Some(suggestion) = index_keys
+            .iter()
+            .copied()
             .filter(|k| crate::features::diagnostics::edit_distance(k, &tpl.path) <= 2)
             .min_by_key(|k| crate::features::diagnostics::edit_distance(k, &tpl.path))
         {
             let diag = crate::features::diagnostics::missing_template_diag(
-                &tpl.path, Some(suggestion), tpl.range,
+                &tpl.path,
+                Some(suggestion),
+                tpl.range,
             );
             let action = CodeAction {
                 title: format!("Change to '{suggestion}'"),
                 kind: Some(CodeActionKind::QUICKFIX),
                 diagnostics: Some(vec![diag]),
                 edit: Some(WorkspaceEdit {
-                    document_changes: Some(
-                        tower_lsp_server::ls_types::DocumentChanges::Edits(vec![
-                            TextDocumentEdit {
-                                text_document: OptionalVersionedTextDocumentIdentifier {
-                                    uri: uri.clone(),
-                                    version: None,
-                                },
-                                edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                                    range: inner_range,
-                                    new_text: suggestion.to_owned(),
-                                })],
+                    document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(
+                        vec![TextDocumentEdit {
+                            text_document: OptionalVersionedTextDocumentIdentifier {
+                                uri: uri.clone(),
+                                version: None,
                             },
-                        ]),
-                    ),
+                            edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
+                                range: inner_range,
+                                new_text: suggestion.to_owned(),
+                            })],
+                        }],
+                    )),
                     ..Default::default()
                 }),
                 is_preferred: Some(true),
@@ -1082,44 +1146,42 @@ pub fn code_actions(
         }
 
         // "Create <path>": create the file under the highest-precedence template root.
-        if can_create
-            && let Some(root) = template_roots.first() {
-                let Some(target_path) = crate::config::safe_join(root, &tpl.path) else {
-                    // Reject path traversal attempts embedded in template string literals
-                    tracing::warn!("code_action: rejecting unsafe template path: {}", tpl.path);
-                    continue;
+        if can_create && let Some(root) = template_roots.first() {
+            let Some(target_path) = crate::config::safe_join(root, &tpl.path) else {
+                // Reject path traversal attempts embedded in template string literals
+                tracing::warn!("code_action: rejecting unsafe template path: {}", tpl.path);
+                continue;
+            };
+            if let Some(target_uri) = path_to_uri(&target_path) {
+                use tower_lsp_server::ls_types::{
+                    CreateFile, CreateFileOptions, DocumentChangeOperation, ResourceOp,
                 };
-                if let Some(target_uri) = path_to_uri(&target_path) {
-                    use tower_lsp_server::ls_types::{
-                        CreateFile, CreateFileOptions, DocumentChangeOperation, ResourceOp,
-                    };
-                    let diag = crate::features::diagnostics::missing_template_diag(
-                        &tpl.path, None, tpl.range,
-                    );
-                    let action = CodeAction {
-                        title: format!("Create '{}'", tpl.path),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: Some(vec![diag]),
-                        edit: Some(WorkspaceEdit {
-                            document_changes: Some(
-                                tower_lsp_server::ls_types::DocumentChanges::Operations(vec![
-                                    DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
-                                        uri: target_uri,
-                                        options: Some(CreateFileOptions {
-                                            overwrite: Some(false),
-                                            ignore_if_exists: Some(true),
-                                        }),
-                                        annotation_id: None,
-                                    })),
-                                ]),
-                            ),
-                            ..Default::default()
-                        }),
+                let diag =
+                    crate::features::diagnostics::missing_template_diag(&tpl.path, None, tpl.range);
+                let action = CodeAction {
+                    title: format!("Create '{}'", tpl.path),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diag]),
+                    edit: Some(WorkspaceEdit {
+                        document_changes: Some(
+                            tower_lsp_server::ls_types::DocumentChanges::Operations(vec![
+                                DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                                    uri: target_uri,
+                                    options: Some(CreateFileOptions {
+                                        overwrite: Some(false),
+                                        ignore_if_exists: Some(true),
+                                    }),
+                                    annotation_id: None,
+                                })),
+                            ]),
+                        ),
                         ..Default::default()
-                    };
-                    actions.push(CodeActionOrCommand::CodeAction(action));
-                }
+                    }),
+                    ..Default::default()
+                };
+                actions.push(CodeActionOrCommand::CodeAction(action));
             }
+        }
     }
 
     actions
@@ -1143,9 +1205,15 @@ fn import_insert_line(source: &str) -> u32 {
     // Skip the module docstring if the first real line is a triple-quoted string.
     if i < n {
         let trimmed = lines[i].trim();
-        let (is_triple, delim) = if trimmed.starts_with("\"\"\"") || trimmed.starts_with("r\"\"\"") || trimmed.starts_with("u\"\"\"") {
+        let (is_triple, delim) = if trimmed.starts_with("\"\"\"")
+            || trimmed.starts_with("r\"\"\"")
+            || trimmed.starts_with("u\"\"\"")
+        {
             (true, "\"\"\"")
-        } else if trimmed.starts_with("'''") || trimmed.starts_with("r'''") || trimmed.starts_with("u'''") {
+        } else if trimmed.starts_with("'''")
+            || trimmed.starts_with("r'''")
+            || trimmed.starts_with("u'''")
+        {
             (true, "'''")
         } else {
             (false, "")
@@ -1172,7 +1240,10 @@ fn import_insert_line(source: &str) -> u32 {
     // Skip `from __future__ import ...` lines (and blanks/comments between them).
     while i < n {
         let trimmed = lines[i].trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("from __future__ import") {
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || trimmed.starts_with("from __future__ import")
+        {
             i += 1;
         } else {
             break;
@@ -1218,24 +1289,34 @@ fn extract_handler_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use tower_lsp_server::ls_types::{
-        CodeActionContext, PartialResultParams, TextDocumentIdentifier, Uri,
-        WorkDoneProgressParams,
-    };
     use crate::config::ResolvedConfig;
     use crate::state::{
-        FileFacts, Linked, Location as StateLocation, Method, PathParam, PathConverter,
-        PrefixValue, ResolvedPath, RouteId, RouteFact, RouteRecord,
+        FileFacts, Linked, Location as StateLocation, Method, PathConverter, PathParam,
+        PrefixValue, ResolvedPath, RouteFact, RouteId, RouteRecord,
+    };
+    use std::sync::Arc;
+    use tower_lsp_server::ls_types::{
+        CodeActionContext, PartialResultParams, TextDocumentIdentifier, Uri, WorkDoneProgressParams,
     };
 
     fn make_params(uri: &Uri, cursor: Position) -> CodeActionParams {
         CodeActionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            range: Range { start: cursor, end: cursor },
-            context: CodeActionContext { diagnostics: vec![], only: None, trigger_kind: None },
-            work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
-            partial_result_params: PartialResultParams { partial_result_token: None },
+            range: Range {
+                start: cursor,
+                end: cursor,
+            },
+            context: CodeActionContext {
+                diagnostics: vec![],
+                only: None,
+                trigger_kind: None,
+            },
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+            partial_result_params: PartialResultParams {
+                partial_result_token: None,
+            },
         }
     }
 
@@ -1257,7 +1338,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(path.to_owned()),
             decorator_path: path.to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             path_params,
             response_model: None,
             response_model_range: None,
@@ -1280,7 +1364,9 @@ mod tests {
 
     fn make_state(uri: &Uri, record: RouteRecord) -> Arc<WorkspaceState> {
         let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/tmp")));
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
         let mut linked = Linked::default();
         let id = record.id.clone();
         linked.route_index.insert(id, vec![record]);
@@ -1291,7 +1377,10 @@ mod tests {
     #[test]
     fn param_missing_arg_action_offered_on_path_segment() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "book_id".to_owned(), converter: PathConverter::Str };
+        let path_param = PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        };
         let (_, record) = make_route(
             &uri,
             "/items/{book_id}",
@@ -1309,16 +1398,30 @@ mod tests {
         let params = make_params(&uri, cursor);
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let titles: Vec<&str> = actions.iter().filter_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { Some(ca.title.as_str()) } else { None }
-        }).collect();
-        assert!(titles.iter().any(|t| t.contains("book_id")), "expected add-param action, got: {:?}", titles);
+        let titles: Vec<&str> = actions
+            .iter()
+            .filter_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    Some(ca.title.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            titles.iter().any(|t| t.contains("book_id")),
+            "expected add-param action, got: {:?}",
+            titles
+        );
     }
 
     #[test]
     fn param_missing_arg_action_not_offered_when_cursor_misses_segment() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "book_id".to_owned(), converter: PathConverter::Str };
+        let path_param = PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        };
         let (_, record) = make_route(
             &uri,
             "/items/{book_id}",
@@ -1333,20 +1436,29 @@ mod tests {
         let params = make_params(&uri, cursor);
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let param_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("book_id")
-            } else {
-                false
-            }
-        }).collect();
-        assert!(param_actions.is_empty(), "action should not appear when cursor misses segment");
+        let param_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("book_id")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            param_actions.is_empty(),
+            "action should not appear when cursor misses segment"
+        );
     }
 
     #[test]
     fn param_missing_arg_no_comma_for_empty_params() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "x".to_owned(), converter: PathConverter::Str };
+        let path_param = PathParam {
+            name: "x".to_owned(),
+            converter: PathConverter::Str,
+        };
         let (_, record) = make_route(
             &uri,
             "/{x}",
@@ -1361,16 +1473,26 @@ mod tests {
         let params = make_params(&uri, Position::new(2, 2));
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let action = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { Some(ca) } else { None }
-        }).expect("action should exist");
+        let action = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    Some(ca)
+                } else {
+                    None
+                }
+            })
+            .expect("action should exist");
         let edit = action.edit.as_ref().unwrap();
         if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
             &edit.document_changes
         {
             let text = &edits[0].edits[0];
             if let tower_lsp_server::ls_types::OneOf::Left(te) = text {
-                assert!(!te.new_text.starts_with(','), "empty params should not start with comma");
+                assert!(
+                    !te.new_text.starts_with(','),
+                    "empty params should not start with comma"
+                );
                 assert!(te.new_text.contains("x: str"));
             }
         }
@@ -1379,7 +1501,10 @@ mod tests {
     #[test]
     fn param_missing_arg_adds_comma_when_params_exist() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "x".to_owned(), converter: PathConverter::Str };
+        let path_param = PathParam {
+            name: "x".to_owned(),
+            converter: PathConverter::Str,
+        };
         let (_, record) = make_route(
             &uri,
             "/{x}",
@@ -1393,15 +1518,25 @@ mod tests {
         let params = make_params(&uri, Position::new(2, 2));
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let action = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { Some(ca) } else { None }
-        }).expect("action should exist");
+        let action = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    Some(ca)
+                } else {
+                    None
+                }
+            })
+            .expect("action should exist");
         let edit = action.edit.as_ref().unwrap();
         if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
             &edit.document_changes
         {
             if let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
-                assert!(te.new_text.starts_with(", "), "should prepend comma when params exist");
+                assert!(
+                    te.new_text.starts_with(", "),
+                    "should prepend comma when params exist"
+                );
             }
         }
     }
@@ -1409,7 +1544,10 @@ mod tests {
     #[test]
     fn param_missing_arg_not_offered_when_splat_args() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "book_id".to_owned(), converter: PathConverter::Str };
+        let path_param = PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        };
         let (_, record) = make_route(
             &uri,
             "/items/{book_id}",
@@ -1423,16 +1561,29 @@ mod tests {
         let params = make_params(&uri, Position::new(2, 8));
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let param_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("book_id") } else { false }
-        }).collect();
-        assert!(param_actions.is_empty(), "splat args should suppress add-param action");
+        let param_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("book_id")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            param_actions.is_empty(),
+            "splat args should suppress add-param action"
+        );
     }
 
     #[test]
     fn arg_missing_param_rename_offered_for_near_miss() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "book_id".to_owned(), converter: PathConverter::Str };
+        let path_param = PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        };
         // handler has "boook_id" (edit distance 1 from "book_id" — one extra 'o')
         let hp_range = Range {
             start: Position::new(6, 8),
@@ -1453,20 +1604,37 @@ mod tests {
 
         let rename = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Rename") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.contains("Rename") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
-        assert!(rename.is_some(), "rename action should be offered for near-miss");
+        assert!(
+            rename.is_some(),
+            "rename action should be offered for near-miss"
+        );
         let action = rename.unwrap();
-        assert!(action.title.contains("book_id"), "title should mention target name");
+        assert!(
+            action.title.contains("book_id"),
+            "title should mention target name"
+        );
 
         // Verify the text edit replaces exactly the handler param range with the path param name
-        if let Some(WorkspaceEdit { document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)), .. }) =
-            &action.edit
+        if let Some(WorkspaceEdit {
+            document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)),
+            ..
+        }) = &action.edit
         {
             assert_eq!(edits.len(), 1);
             if let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
-                assert_eq!(te.range, hp_range, "edit must cover the handler param token");
+                assert_eq!(
+                    te.range, hp_range,
+                    "edit must cover the handler param token"
+                );
                 assert_eq!(te.new_text, "book_id", "must rename to path param name");
             }
         } else {
@@ -1478,8 +1646,14 @@ mod tests {
     fn arg_missing_param_rename_not_offered_when_multiple_unbound_params() {
         let uri: Uri = "file:///app.py".parse().unwrap();
         // Two unbound path params — gate should prevent action
-        let p1 = PathParam { name: "a".to_owned(), converter: PathConverter::Str };
-        let p2 = PathParam { name: "b".to_owned(), converter: PathConverter::Str };
+        let p1 = PathParam {
+            name: "a".to_owned(),
+            converter: PathConverter::Str,
+        };
+        let p2 = PathParam {
+            name: "b".to_owned(),
+            converter: PathConverter::Str,
+        };
         let hp_range = Range {
             start: Position::new(6, 8),
             end: Position::new(6, 11),
@@ -1497,17 +1671,33 @@ mod tests {
         let params = make_params(&uri, Position::new(6, 8));
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let rename_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Rename") } else { false }
-        }).collect();
-        assert!(rename_actions.is_empty(), "rename should not appear when multiple params unbound");
+        let rename_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Rename")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            rename_actions.is_empty(),
+            "rename should not appear when multiple params unbound"
+        );
     }
 
     #[test]
     fn arg_missing_param_rename_not_offered_when_ranges_mismatch_handler_params() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "book_id".to_owned(), converter: PathConverter::Str };
-        let hp_range = Range { start: Position::new(6, 8), end: Position::new(6, 16) };
+        let path_param = PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        };
+        let hp_range = Range {
+            start: Position::new(6, 8),
+            end: Position::new(6, 16),
+        };
         // Deliberately pass empty handler_param_ranges (len=0) with a non-empty handler_params (len=1)
         let id = RouteId("app.handler:/items/{book_id}:GET".to_owned());
         let record = RouteRecord {
@@ -1518,7 +1708,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/items/{book_id}".to_owned()),
             decorator_path: "/items/{book_id}".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: hp_range },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: hp_range,
+            },
             path_params: vec![path_param],
             response_model: None,
             response_model_range: None,
@@ -1540,17 +1733,33 @@ mod tests {
         let params = make_params(&uri, Position::new(6, 8));
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let rename_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Rename") } else { false }
-        }).collect();
-        assert!(rename_actions.is_empty(), "mismatched ranges must suppress rename to prevent destructive edit");
+        let rename_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Rename")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            rename_actions.is_empty(),
+            "mismatched ranges must suppress rename to prevent destructive edit"
+        );
     }
 
     #[test]
     fn arg_missing_param_add_segment_offered_with_rename() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let path_param = PathParam { name: "book_id".to_owned(), converter: PathConverter::Str };
-        let hp_range = Range { start: Position::new(6, 8), end: Position::new(6, 16) };
+        let path_param = PathParam {
+            name: "book_id".to_owned(),
+            converter: PathConverter::Str,
+        };
+        let hp_range = Range {
+            start: Position::new(6, 8),
+            end: Position::new(6, 16),
+        };
         let (_, record) = make_route(
             &uri,
             "/items/{book_id}",
@@ -1566,17 +1775,34 @@ mod tests {
 
         let add_seg = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("segment") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.contains("segment") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
-        assert!(add_seg.is_some(), "add-segment action should appear alongside rename");
+        assert!(
+            add_seg.is_some(),
+            "add-segment action should appear alongside rename"
+        );
         let action = add_seg.unwrap();
-        assert!(action.title.contains("boook_id"), "title uses handler param name");
-        if let Some(WorkspaceEdit { document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)), .. }) =
-            &action.edit
+        assert!(
+            action.title.contains("boook_id"),
+            "title uses handler param name"
+        );
+        if let Some(WorkspaceEdit {
+            document_changes: Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)),
+            ..
+        }) = &action.edit
         {
             if let tower_lsp_server::ls_types::OneOf::Left(te) = &edits[0].edits[0] {
-                assert_eq!(te.new_text, "/{boook_id}", "segment text uses handler param name");
+                assert_eq!(
+                    te.new_text, "/{boook_id}",
+                    "segment text uses handler param name"
+                );
             }
         }
     }
@@ -1596,8 +1822,14 @@ mod tests {
     #[test]
     fn convert_inline_to_annotated_offered_on_cursor() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let type_range = Range { start: Position::new(3, 17), end: Position::new(3, 24) }; // "Session"
-        let default_range = Range { start: Position::new(3, 27), end: Position::new(3, 42) }; // "Depends(get_db)"
+        let type_range = Range {
+            start: Position::new(3, 17),
+            end: Position::new(3, 24),
+        }; // "Session"
+        let default_range = Range {
+            start: Position::new(3, 27),
+            end: Position::new(3, 42),
+        }; // "Depends(get_db)"
         let ap = crate::state::AnnotatedParam {
             param_name: "db".to_owned(),
             containing_func: "get_book".to_owned(),
@@ -1616,24 +1848,40 @@ mod tests {
 
         let convert = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Annotated style") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.contains("Annotated style") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
-        assert!(convert.is_some(), "should offer convert-to-Annotated action");
+        assert!(
+            convert.is_some(),
+            "should offer convert-to-Annotated action"
+        );
         let action = convert.unwrap();
         assert!(action.title.contains("db"), "title should name the param");
 
         // Verify the edit replaces the combined range with Annotated[Session, Depends(get_db)]
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            action.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = action
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             let all_edits: Vec<_> = edits.iter().flat_map(|e| e.edits.iter()).collect();
             let annotated_edit = all_edits.iter().find(|e| {
                 if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
                     te.new_text.contains("Annotated[Session")
-                } else { false }
+                } else {
+                    false
+                }
             });
-            assert!(annotated_edit.is_some(), "edit should contain Annotated[Session, Depends(get_db)]");
+            assert!(
+                annotated_edit.is_some(),
+                "edit should contain Annotated[Session, Depends(get_db)]"
+            );
         } else {
             panic!("expected document_changes");
         }
@@ -1642,8 +1890,14 @@ mod tests {
     #[test]
     fn convert_inline_to_annotated_adds_import_when_missing() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let type_range = Range { start: Position::new(3, 17), end: Position::new(3, 24) };
-        let default_range = Range { start: Position::new(3, 27), end: Position::new(3, 42) };
+        let type_range = Range {
+            start: Position::new(3, 17),
+            end: Position::new(3, 24),
+        };
+        let default_range = Range {
+            start: Position::new(3, 27),
+            end: Position::new(3, 42),
+        };
         let ap = crate::state::AnnotatedParam {
             param_name: "db".to_owned(),
             containing_func: "get_book".to_owned(),
@@ -1659,29 +1913,48 @@ mod tests {
         let params = make_params(&uri, Position::new(3, 18));
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let convert = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Annotated style") { Some(ca) } else { None }
-            } else { None }
-        }).unwrap();
+        let convert = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("Annotated style") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap();
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            convert.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = convert
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             let all_edits: Vec<_> = edits.iter().flat_map(|e| e.edits.iter()).collect();
             let import_edit = all_edits.iter().find(|e| {
                 if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
                     te.new_text.contains("from typing import Annotated")
-                } else { false }
+                } else {
+                    false
+                }
             });
-            assert!(import_edit.is_some(), "should add Annotated import when missing");
+            assert!(
+                import_edit.is_some(),
+                "should add Annotated import when missing"
+            );
         }
     }
 
     #[test]
     fn convert_annotated_to_inline_offered_on_cursor() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let annotation_range = Range { start: Position::new(3, 17), end: Position::new(3, 50) }; // "Annotated[Session, Depends(get_db)]"
+        let annotation_range = Range {
+            start: Position::new(3, 17),
+            end: Position::new(3, 50),
+        }; // "Annotated[Session, Depends(get_db)]"
         let ap = crate::state::AnnotatedParam {
             param_name: "db".to_owned(),
             containing_func: "get_book".to_owned(),
@@ -1700,16 +1973,29 @@ mod tests {
 
         let convert = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("inline style") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.contains("inline style") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
         assert!(convert.is_some(), "should offer convert-to-inline action");
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            convert.unwrap().edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = convert
+            .unwrap()
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             let all_edits: Vec<_> = edits.iter().flat_map(|e| e.edits.iter()).collect();
-            assert_eq!(all_edits.len(), 1, "inline conversion should produce exactly one edit");
+            assert_eq!(
+                all_edits.len(),
+                1,
+                "inline conversion should produce exactly one edit"
+            );
             if let tower_lsp_server::ls_types::OneOf::Left(te) = all_edits[0] {
                 assert_eq!(te.range, annotation_range);
                 assert_eq!(te.new_text, "Session = Depends(get_db)");
@@ -1720,8 +2006,14 @@ mod tests {
     #[test]
     fn convert_inline_to_annotated_no_import_when_already_imported() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let type_range = Range { start: Position::new(3, 17), end: Position::new(3, 24) };
-        let default_range = Range { start: Position::new(3, 27), end: Position::new(3, 42) };
+        let type_range = Range {
+            start: Position::new(3, 17),
+            end: Position::new(3, 24),
+        };
+        let default_range = Range {
+            start: Position::new(3, 27),
+            end: Position::new(3, 42),
+        };
         let ap = crate::state::AnnotatedParam {
             containing_func: "get_book".to_owned(),
             param_name: "db".to_owned(),
@@ -1742,29 +2034,51 @@ mod tests {
         let params = make_params(&uri, Position::new(3, 18));
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let convert = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Annotated style") { Some(ca) } else { None }
-            } else { None }
-        }).unwrap();
+        let convert = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("Annotated style") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap();
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            convert.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = convert
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             let has_import_edit = edits.iter().flat_map(|e| e.edits.iter()).any(|e| {
                 if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
                     te.new_text.contains("from typing import Annotated")
-                } else { false }
+                } else {
+                    false
+                }
             });
-            assert!(!has_import_edit, "should NOT add import when Annotated is already imported");
+            assert!(
+                !has_import_edit,
+                "should NOT add import when Annotated is already imported"
+            );
         }
     }
 
     #[test]
     fn convert_inline_to_annotated_offered_for_cursor_on_depends() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let type_range = Range { start: Position::new(3, 17), end: Position::new(3, 24) };
-        let default_range = Range { start: Position::new(3, 27), end: Position::new(3, 42) }; // Depends(...)
+        let type_range = Range {
+            start: Position::new(3, 17),
+            end: Position::new(3, 24),
+        };
+        let default_range = Range {
+            start: Position::new(3, 27),
+            end: Position::new(3, 42),
+        }; // Depends(...)
         let ap = crate::state::AnnotatedParam {
             containing_func: "get_book".to_owned(),
             param_name: "db".to_owned(),
@@ -1782,16 +2096,29 @@ mod tests {
         let params = make_params(&uri, cursor);
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let convert_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Annotated style") } else { false }
-        }).collect();
-        assert!(!convert_actions.is_empty(), "action should be offered when cursor is on Depends side");
+        let convert_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Annotated style")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            !convert_actions.is_empty(),
+            "action should be offered when cursor is on Depends side"
+        );
     }
 
     #[test]
     fn convert_annotated_to_inline_not_offered_when_extra_args() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let annotation_range = Range { start: Position::new(3, 17), end: Position::new(3, 60) };
+        let annotation_range = Range {
+            start: Position::new(3, 17),
+            end: Position::new(3, 60),
+        };
         let ap = crate::state::AnnotatedParam {
             containing_func: "handler".to_owned(),
             param_name: "x".to_owned(),
@@ -1808,17 +2135,33 @@ mod tests {
         let params = make_params(&uri, cursor);
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let inline_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("inline style") } else { false }
-        }).collect();
-        assert!(inline_actions.is_empty(), "inline conversion must be suppressed when extra Annotated args present");
+        let inline_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("inline style")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            inline_actions.is_empty(),
+            "inline conversion must be suppressed when extra Annotated args present"
+        );
     }
 
     #[test]
     fn convert_not_offered_when_cursor_misses_param() {
         let uri: Uri = "file:///app.py".parse().unwrap();
-        let type_range = Range { start: Position::new(3, 17), end: Position::new(3, 24) };
-        let default_range = Range { start: Position::new(3, 27), end: Position::new(3, 42) };
+        let type_range = Range {
+            start: Position::new(3, 17),
+            end: Position::new(3, 24),
+        };
+        let default_range = Range {
+            start: Position::new(3, 27),
+            end: Position::new(3, 42),
+        };
         let ap = crate::state::AnnotatedParam {
             param_name: "db".to_owned(),
             containing_func: "get_book".to_owned(),
@@ -1835,12 +2178,20 @@ mod tests {
         let params = make_params(&uri, cursor);
         let actions = code_actions(&state, &params, &PathBuf::from("/tmp"), &[], false);
 
-        let convert_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("Annotated style") || ca.title.contains("inline style")
-            } else { false }
-        }).collect();
-        assert!(convert_actions.is_empty(), "should not offer when cursor misses the param span");
+        let convert_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Annotated style") || ca.title.contains("inline style")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            convert_actions.is_empty(),
+            "should not offer when cursor misses the param span"
+        );
     }
 
     fn make_route_with_response_model(
@@ -1859,7 +2210,10 @@ mod tests {
             chain: vec![],
             handler: StateLocation {
                 uri: uri.clone(),
-                range: Range { start: Position::new(1, 0), end: Position::new(1, 20) },
+                range: Range {
+                    start: Position::new(1, 0),
+                    end: Position::new(1, 20),
+                },
             },
             path_params: vec![],
             response_model: Some(response_model.to_owned()),
@@ -1881,17 +2235,27 @@ mod tests {
     #[test]
     fn create_model_offered_for_camel_case_not_in_index() {
         let uri: Uri = "file:///project/app.py".parse().unwrap();
-        let rm_range = Range { start: Position::new(0, 20), end: Position::new(0, 30) };
+        let rm_range = Range {
+            start: Position::new(0, 20),
+            end: Position::new(0, 30),
+        };
         let (id, record) = make_route_with_response_model(&uri, "BookCreate", rm_range);
 
         // schemas.py exists in the same package (so no file creation needed — target_exists=true)
         let schemas_uri: Uri = "file:///project/schemas.py".parse().unwrap();
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        state.file_facts.insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        state
+            .file_facts
+            .insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
         // file_sources must also have schemas.py so target_exists=true (desync safety)
-        state.file_sources.insert(schemas_uri.clone(), String::new());
+        state
+            .file_sources
+            .insert(schemas_uri.clone(), String::new());
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
         state.linked.store(Arc::new(linked));
@@ -1901,58 +2265,101 @@ mod tests {
 
         let create_action = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Create model") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.contains("Create model") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
-        assert!(create_action.is_some(), "create model action should be offered");
+        assert!(
+            create_action.is_some(),
+            "create model action should be offered"
+        );
         let action = create_action.unwrap();
-        assert!(action.title.contains("BookCreate"), "title must name the model");
-        assert!(action.title.contains("schemas"), "title must name target module");
+        assert!(
+            action.title.contains("BookCreate"),
+            "title must name the model"
+        );
+        assert!(
+            action.title.contains("schemas"),
+            "title must name target module"
+        );
     }
 
     #[test]
     fn create_model_not_offered_when_model_in_index() {
         let uri: Uri = "file:///project/app.py".parse().unwrap();
-        let rm_range = Range { start: Position::new(0, 20), end: Position::new(0, 30) };
+        let rm_range = Range {
+            start: Position::new(0, 20),
+            end: Position::new(0, 30),
+        };
         let (id, record) = make_route_with_response_model(&uri, "BookCreate", rm_range);
 
         let schemas_uri: Uri = "file:///project/schemas.py".parse().unwrap();
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
-        state.file_facts.insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
+        state
+            .file_facts
+            .insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
         let mut linked = Linked::default();
         // BookCreate IS in the model_index — "import" action handles it, not "create"
-        linked.model_index.insert("BookCreate".to_owned(), vec![
-            crate::state::ModelRecord {
+        linked.model_index.insert(
+            "BookCreate".to_owned(),
+            vec![crate::state::ModelRecord {
                 name: "BookCreate".to_owned(),
-                location: StateLocation { uri: schemas_uri.clone(), range: Range::default() },
+                location: StateLocation {
+                    uri: schemas_uri.clone(),
+                    range: Range::default(),
+                },
                 is_settings: false,
-            }
-        ]);
+            }],
+        );
         linked.route_index.insert(id, vec![record]);
         state.linked.store(Arc::new(linked));
 
         let params = make_params(&uri, Position::new(0, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Create model") } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "create action must not appear when model is already in the index");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Create model")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "create action must not appear when model is already in the index"
+        );
     }
 
     #[test]
     fn create_model_not_offered_when_already_imported() {
         let uri: Uri = "file:///project/app.py".parse().unwrap();
-        let rm_range = Range { start: Position::new(0, 20), end: Position::new(0, 30) };
+        let rm_range = Range {
+            start: Position::new(0, 20),
+            end: Position::new(0, 30),
+        };
         let (id, record) = make_route_with_response_model(&uri, "BookCreate", rm_range);
 
         let schemas_uri: Uri = "file:///project/schemas.py".parse().unwrap();
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.imported_names.push("BookCreate".to_owned());
         state.file_facts.insert(uri.clone(), facts);
-        state.file_facts.insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
+        state
+            .file_facts
+            .insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
         state.linked.store(Arc::new(linked));
@@ -1960,25 +2367,41 @@ mod tests {
         let params = make_params(&uri, Position::new(0, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Create model") } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "create action must not appear when name is already imported");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Create model")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "create action must not appear when name is already imported"
+        );
     }
 
     #[test]
     fn create_model_uses_imports_first_when_imported_module_has_models() {
         let uri: Uri = "file:///project/app.py".parse().unwrap();
-        let rm_range = Range { start: Position::new(0, 20), end: Position::new(0, 30) };
+        let rm_range = Range {
+            start: Position::new(0, 20),
+            end: Position::new(0, 30),
+        };
         let (id, record) = make_route_with_response_model(&uri, "BookCreate", rm_range);
 
         // The current file imports from "app.models", which has Pydantic models
         let models_uri: Uri = "file:///project/app/models.py".parse().unwrap();
         let schemas_uri: Uri = "file:///project/schemas.py".parse().unwrap();
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.imported_from.insert("Book".to_owned(), "app.models".to_owned());
+        facts
+            .imported_from
+            .insert("Book".to_owned(), "app.models".to_owned());
         state.file_facts.insert(uri.clone(), facts);
 
         // app/models.py tracked and has models
@@ -1989,11 +2412,18 @@ mod tests {
             is_settings: false,
         });
         state.file_facts.insert(models_uri.clone(), models_facts);
-        state.file_sources.insert(models_uri.clone(), "from pydantic import BaseModel\nclass Book(BaseModel): pass\n".to_owned());
+        state.file_sources.insert(
+            models_uri.clone(),
+            "from pydantic import BaseModel\nclass Book(BaseModel): pass\n".to_owned(),
+        );
 
         // schemas.py also tracked (would be fallback)
-        state.file_facts.insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
-        state.file_sources.insert(schemas_uri.clone(), "".to_owned());
+        state
+            .file_facts
+            .insert(schemas_uri.clone(), FileFacts::new(schemas_uri.clone()));
+        state
+            .file_sources
+            .insert(schemas_uri.clone(), "".to_owned());
 
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
@@ -2004,14 +2434,24 @@ mod tests {
 
         let create_action = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Create model") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.contains("Create model") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
-        assert!(create_action.is_some(), "create model action should be offered");
+        assert!(
+            create_action.is_some(),
+            "create model action should be offered"
+        );
         let action = create_action.unwrap();
         assert!(
             action.title.contains("app.models"),
-            "imports-first: action should target app.models, got: {}", action.title
+            "imports-first: action should target app.models, got: {}",
+            action.title
         );
         assert!(
             !action.title.contains("schemas"),
@@ -2022,12 +2462,18 @@ mod tests {
     #[test]
     fn create_model_new_file_requires_create_capability() {
         let uri: Uri = "file:///project/app.py".parse().unwrap();
-        let rm_range = Range { start: Position::new(0, 20), end: Position::new(0, 30) };
+        let rm_range = Range {
+            start: Position::new(0, 20),
+            end: Position::new(0, 30),
+        };
         let (id, record) = make_route_with_response_model(&uri, "BookCreate", rm_range);
 
         // schemas.py is NOT in file_facts — it would need to be created
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
         let mut linked = Linked::default();
         linked.route_index.insert(id, vec![record]);
         state.linked.store(Arc::new(linked));
@@ -2035,18 +2481,40 @@ mod tests {
         // can_create_files is false by default
         let params = make_params(&uri, Position::new(0, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Create model") } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "must not offer create action when can_create_files=false");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Create model")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "must not offer create action when can_create_files=false"
+        );
 
         // Now enable the capability
-        state.can_create_files.store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .can_create_files
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Create model") } else { false }
-        }).collect();
-        assert!(!create_actions.is_empty(), "must offer create action when can_create_files=true");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Create model")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            !create_actions.is_empty(),
+            "must offer create action when can_create_files=true"
+        );
     }
 
     #[test]
@@ -2085,13 +2553,26 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/items/{id}".to_owned()),
             decorator_path: "/items/{id}".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: shadower_range_adj },
-            path_params: vec![PathParam { name: "id".to_owned(), converter: PathConverter::Str }],
-            response_model: None, response_model_range: None, return_annotation: None,
-            dependencies: vec![], middleware: vec![], path_range: None,
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: shadower_range_adj,
+            },
+            path_params: vec![PathParam {
+                name: "id".to_owned(),
+                converter: PathConverter::Str,
+            }],
+            response_model: None,
+            response_model_range: None,
+            return_annotation: None,
+            dependencies: vec![],
+            middleware: vec![],
+            path_range: None,
             path_quote_width: None,
-            handler_params: vec![], handler_param_ranges: vec![], params_insert_pos: None,
-            handler_has_splat_args: false, handler_params_known: true,
+            handler_params: vec![],
+            handler_param_ranges: vec![],
+            params_insert_pos: None,
+            handler_has_splat_args: false,
+            handler_params_known: true,
         };
         let id_sd = RouteId("app.shadowed2".to_owned());
         let shadowed2 = RouteRecord {
@@ -2102,16 +2583,29 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/items/featured".to_owned()),
             decorator_path: "/items/featured".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: shadowed_range_adj },
-            path_params: vec![], response_model: None, response_model_range: None,
-            return_annotation: None, dependencies: vec![], middleware: vec![], path_range: None,
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: shadowed_range_adj,
+            },
+            path_params: vec![],
+            response_model: None,
+            response_model_range: None,
+            return_annotation: None,
+            dependencies: vec![],
+            middleware: vec![],
+            path_range: None,
             path_quote_width: None,
-            handler_params: vec![], handler_param_ranges: vec![], params_insert_pos: None,
-            handler_has_splat_args: false, handler_params_known: true,
+            handler_params: vec![],
+            handler_param_ranges: vec![],
+            params_insert_pos: None,
+            handler_has_splat_args: false,
+            handler_params_known: true,
         };
 
         let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/tmp")));
-        state.file_facts.insert(uri.clone(), FileFacts::new(uri.clone()));
+        state
+            .file_facts
+            .insert(uri.clone(), FileFacts::new(uri.clone()));
         state.file_sources.insert(uri.clone(), source.to_owned());
         let mut linked = Linked::default();
         linked.route_index.insert(id_sh, vec![shadower2]);
@@ -2124,18 +2618,36 @@ mod tests {
 
         let move_action = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.starts_with("Move route above") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.starts_with("Move route above") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
-        assert!(move_action.is_some(), "Move route above action should be offered");
+        assert!(
+            move_action.is_some(),
+            "Move route above action should be offered"
+        );
         let action = move_action.unwrap();
-        assert!(action.title.contains("get_book"), "title names the shadowing handler");
+        assert!(
+            action.title.contains("get_book"),
+            "title names the shadowing handler"
+        );
     }
 
     // ── extract/router tests ─────────────────────────────────────────────────
 
     /// Build a RouteFact for the extract-router tests.
-    fn make_route_fact(handler_name: &str, object_name: &str, path: &str, path_range: Range, handler_range: Range) -> RouteFact {
+    fn make_route_fact(
+        handler_name: &str,
+        object_name: &str,
+        path: &str,
+        path_range: Range,
+        handler_range: Range,
+    ) -> RouteFact {
         RouteFact {
             handler_name: handler_name.to_owned(),
             handler_range,
@@ -2159,7 +2671,13 @@ mod tests {
     }
 
     /// Build a RouteRecord for the extract-router tests (chain.is_empty()).
-    fn make_direct_route(uri: &Uri, handler_name: &str, path: &str, path_range: Range, handler_range: Range) -> RouteRecord {
+    fn make_direct_route(
+        uri: &Uri,
+        handler_name: &str,
+        path: &str,
+        path_range: Range,
+        handler_range: Range,
+    ) -> RouteRecord {
         RouteRecord {
             id: RouteId::new(uri, handler_name, &Method::Get),
             ordinal: 0,
@@ -2168,7 +2686,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(path.to_owned()),
             decorator_path: path.to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: handler_range },
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: handler_range,
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,
@@ -2195,17 +2716,30 @@ mod tests {
         let source = "@app.get(\"/books\")\ndef list_books(): ...\n@app.get(\"/books/{book_id}\")\ndef get_book(book_id: int): ...\n";
         let uri: Uri = "file:///project/app.py".parse().unwrap();
 
-        let pr1 = Range { start: Position::new(0, 9), end: Position::new(0, 17) }; // "/books"
-        let hr1 = Range { start: Position::new(1, 0), end: Position::new(1, 20) };
-        let pr2 = Range { start: Position::new(2, 9), end: Position::new(2, 27) }; // "/books/{book_id}"
-        let hr2 = Range { start: Position::new(3, 0), end: Position::new(3, 30) };
+        let pr1 = Range {
+            start: Position::new(0, 9),
+            end: Position::new(0, 17),
+        }; // "/books"
+        let hr1 = Range {
+            start: Position::new(1, 0),
+            end: Position::new(1, 20),
+        };
+        let pr2 = Range {
+            start: Position::new(2, 9),
+            end: Position::new(2, 27),
+        }; // "/books/{book_id}"
+        let hr2 = Range {
+            start: Position::new(3, 0),
+            end: Position::new(3, 30),
+        };
 
         let rf1 = make_route_fact("list_books", "app", "/books", pr1, hr1);
         let rf2 = make_route_fact("get_book", "app", "/books/{book_id}", pr2, hr2);
         let rr1 = make_direct_route(&uri, "list_books", "/books", pr1, hr1);
         let rr2 = make_direct_route(&uri, "get_book", "/books/{book_id}", pr2, hr2);
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.routes.push(rf1);
         facts.routes.push(rf2);
@@ -2221,12 +2755,21 @@ mod tests {
 
         let extract = actions.iter().find_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Extract router") { Some(ca) } else { None }
-            } else { None }
+                if ca.title.contains("Extract router") {
+                    Some(ca)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
         assert!(extract.is_some(), "extract router action should be offered");
         let action = extract.unwrap();
-        assert!(action.title.contains("/books"), "title must include the prefix");
+        assert!(
+            action.title.contains("/books"),
+            "title must include the prefix"
+        );
     }
 
     #[test]
@@ -2234,17 +2777,30 @@ mod tests {
         let source = "@app.get(\"/books\")\ndef list_books(): ...\n@app.get(\"/books/{book_id}\")\ndef get_book(book_id: int): ...\n";
         let uri: Uri = "file:///project/app.py".parse().unwrap();
 
-        let pr1 = Range { start: Position::new(0, 9), end: Position::new(0, 17) };
-        let hr1 = Range { start: Position::new(1, 0), end: Position::new(1, 20) };
-        let pr2 = Range { start: Position::new(2, 9), end: Position::new(2, 27) };
-        let hr2 = Range { start: Position::new(3, 0), end: Position::new(3, 30) };
+        let pr1 = Range {
+            start: Position::new(0, 9),
+            end: Position::new(0, 17),
+        };
+        let hr1 = Range {
+            start: Position::new(1, 0),
+            end: Position::new(1, 20),
+        };
+        let pr2 = Range {
+            start: Position::new(2, 9),
+            end: Position::new(2, 27),
+        };
+        let hr2 = Range {
+            start: Position::new(3, 0),
+            end: Position::new(3, 30),
+        };
 
         let rf1 = make_route_fact("list_books", "app", "/books", pr1, hr1);
         let rf2 = make_route_fact("get_book", "app", "/books/{book_id}", pr2, hr2);
         let rr1 = make_direct_route(&uri, "list_books", "/books", pr1, hr1);
         let rr2 = make_direct_route(&uri, "get_book", "/books/{book_id}", pr2, hr2);
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.routes.push(rf1);
         facts.routes.push(rf2);
@@ -2258,43 +2814,76 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 0));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let extract = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("Extract router") { Some(ca) } else { None }
-            } else { None }
-        }).expect("action should exist");
+        let extract = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("Extract router") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("action should exist");
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            extract.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = extract
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             let all_edits: Vec<_> = edits.iter().flat_map(|e| e.edits.iter()).collect();
             // Path /books → "" (empty, stripped prefix)
             let has_empty_path = all_edits.iter().any(|e| {
-                if let tower_lsp_server::ls_types::OneOf::Left(te) = e { te.new_text == "\"\"" } else { false }
+                if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
+                    te.new_text == "\"\""
+                } else {
+                    false
+                }
             });
             assert!(has_empty_path, "should strip prefix from /books → \"\"");
             // Path /books/{book_id} → /{book_id}
             let has_stripped_path = all_edits.iter().any(|e| {
-                if let tower_lsp_server::ls_types::OneOf::Left(te) = e { te.new_text == "\"/{book_id}\"" } else { false }
+                if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
+                    te.new_text == "\"/{book_id}\""
+                } else {
+                    false
+                }
             });
-            assert!(has_stripped_path, "should strip prefix from /books/{{book_id}} → /{{book_id}}");
+            assert!(
+                has_stripped_path,
+                "should strip prefix from /books/{{book_id}} → /{{book_id}}"
+            );
             // Object name `app` → `router`
             let has_obj_rename = all_edits.iter().any(|e| {
-                if let tower_lsp_server::ls_types::OneOf::Left(te) = e { te.new_text == "router" } else { false }
+                if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
+                    te.new_text == "router"
+                } else {
+                    false
+                }
             });
-            assert!(has_obj_rename, "should rename object_name from app to router");
+            assert!(
+                has_obj_rename,
+                "should rename object_name from app to router"
+            );
             // Router declaration insert
             let has_router_decl = all_edits.iter().any(|e| {
                 if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
                     te.new_text.contains("APIRouter(prefix=\"/books\")")
-                } else { false }
+                } else {
+                    false
+                }
             });
             assert!(has_router_decl, "should insert APIRouter declaration");
             // include_router append
             let has_include = all_edits.iter().any(|e| {
                 if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
                     te.new_text.contains("app.include_router(router)")
-                } else { false }
+                } else {
+                    false
+                }
             });
             assert!(has_include, "should append include_router call");
         } else {
@@ -2307,13 +2896,20 @@ mod tests {
         let source = "@app.get(\"/books/{book_id}\")\ndef get_book(book_id: int): ...\n";
         let uri: Uri = "file:///project/app.py".parse().unwrap();
 
-        let pr = Range { start: Position::new(0, 9), end: Position::new(0, 27) };
-        let hr = Range { start: Position::new(1, 0), end: Position::new(1, 30) };
+        let pr = Range {
+            start: Position::new(0, 9),
+            end: Position::new(0, 27),
+        };
+        let hr = Range {
+            start: Position::new(1, 0),
+            end: Position::new(1, 30),
+        };
 
         let rf = make_route_fact("get_book", "app", "/books/{book_id}", pr, hr);
         let rr = make_direct_route(&uri, "get_book", "/books/{book_id}", pr, hr);
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.routes.push(rf);
         state.file_facts.insert(uri.clone(), facts);
@@ -2325,10 +2921,20 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 0));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let extract_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Extract router") } else { false }
-        }).collect();
-        assert!(extract_actions.is_empty(), "must not offer extract router with only one candidate");
+        let extract_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Extract router")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            extract_actions.is_empty(),
+            "must not offer extract router with only one candidate"
+        );
     }
 
     // ── extract-dependency tests ─────────────────────────────────────────────
@@ -2364,14 +2970,18 @@ mod tests {
         let ap = make_annotated_dep_param("db", "get_book", 1, 4, 40, "Session", "Depends(get_db)");
         let source = "@app.get(\"/books\")\ndef get_book(book_id: int, db: Annotated[Session, Depends(get_db)]): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.annotated_params.push(ap);
         facts.routes.push(make_route_fact_simple("get_book", 1));
         // dep is defined → gate passes
         facts.dep_defs.push(crate::state::DepDef {
             name: "get_db".to_owned(),
-            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            node_id: crate::state::NodeId {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -2382,32 +2992,51 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 20));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let action = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("SessionDep") && !ca.title.contains("workspace") { Some(ca) } else { None }
-            } else { None }
-        }).expect("same-file extract action should be offered");
+        let action = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("SessionDep") && !ca.title.contains("workspace") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("same-file extract action should be offered");
 
         assert_eq!(action.kind, Some(CodeActionKind::REFACTOR_EXTRACT));
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            action.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = action
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             let all_edits: Vec<_> = edits.iter().flat_map(|e| e.edits.iter()).collect();
             // Should have: alias insert + annotation replacement
-            assert!(all_edits.len() >= 2, "should have alias insert and annotation replacement");
+            assert!(
+                all_edits.len() >= 2,
+                "should have alias insert and annotation replacement"
+            );
 
             let has_alias = all_edits.iter().any(|e| {
                 if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
-                    te.new_text.contains("SessionDep = Annotated[Session, Depends(get_db)]")
-                } else { false }
+                    te.new_text
+                        .contains("SessionDep = Annotated[Session, Depends(get_db)]")
+                } else {
+                    false
+                }
             });
             assert!(has_alias, "should insert alias definition");
 
             let has_replacement = all_edits.iter().any(|e| {
                 if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
                     te.new_text == "SessionDep"
-                } else { false }
+                } else {
+                    false
+                }
             });
             assert!(has_replacement, "should replace annotation with alias name");
         } else {
@@ -2421,7 +3050,8 @@ mod tests {
         let ap = make_annotated_dep_param("db", "get_book", 1, 4, 40, "Session", "Depends(get_db)");
         let source = "@app.get(\"/books\")\ndef get_book(book_id: int, db: Annotated[Session, Depends(get_db)]): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.annotated_params.push(ap);
         facts.routes.push(make_route_fact_simple("get_book", 1));
@@ -2433,12 +3063,20 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 20));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let extract_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("SessionDep")
-            } else { false }
-        }).collect();
-        assert!(extract_actions.is_empty(), "should not offer extract when dep is undefined");
+        let extract_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("SessionDep")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            extract_actions.is_empty(),
+            "should not offer extract when dep is undefined"
+        );
     }
 
     #[test]
@@ -2448,13 +3086,17 @@ mod tests {
         // SessionDep is already defined at line 0
         let source = "SessionDep = Annotated[Session, Depends(get_db)]\n@app.get(\"/books\")\ndef get_book(book_id: int, db: Annotated[Session, Depends(get_db)]): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.annotated_params.push(ap);
         facts.routes.push(make_route_fact_simple("get_book", 2));
         facts.dep_defs.push(crate::state::DepDef {
             name: "get_db".to_owned(),
-            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            node_id: crate::state::NodeId {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -2465,12 +3107,21 @@ mod tests {
         let params = make_params(&uri, Position::new(2, 20));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let extract_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("Extract to named dependency") && ca.title.contains("SessionDep")
-            } else { false }
-        }).collect();
-        assert!(extract_actions.is_empty(), "should not offer extract when alias name is already bound");
+        let extract_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Extract to named dependency")
+                        && ca.title.contains("SessionDep")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            extract_actions.is_empty(),
+            "should not offer extract when alias name is already bound"
+        );
     }
 
     #[test]
@@ -2478,10 +3129,13 @@ mod tests {
         let uri: Uri = "file:///project/app.py".parse().unwrap();
         let source = "@app.get(\"/a\")\ndef handler_a(db: Annotated[Session, Depends(get_db)]): ...\n@app.get(\"/b\")\ndef handler_b(db: Annotated[Session, Depends(get_db)]): ...\n";
         // Two occurrences of the same annotation
-        let ap1 = make_annotated_dep_param("db", "handler_a", 1, 17, 53, "Session", "Depends(get_db)");
-        let ap2 = make_annotated_dep_param("db", "handler_b", 3, 17, 53, "Session", "Depends(get_db)");
+        let ap1 =
+            make_annotated_dep_param("db", "handler_a", 1, 17, 53, "Session", "Depends(get_db)");
+        let ap2 =
+            make_annotated_dep_param("db", "handler_b", 3, 17, 53, "Session", "Depends(get_db)");
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.annotated_params.push(ap1);
         facts.annotated_params.push(ap2);
@@ -2489,7 +3143,10 @@ mod tests {
         facts.routes.push(make_route_fact_simple("handler_b", 3));
         facts.dep_defs.push(crate::state::DepDef {
             name: "get_db".to_owned(),
-            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            node_id: crate::state::NodeId {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -2500,21 +3157,41 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 30));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let action = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("SessionDep") && !ca.title.contains("workspace") { Some(ca) } else { None }
-            } else { None }
-        }).expect("extract action should be offered");
+        let action = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("SessionDep") && !ca.title.contains("workspace") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("extract action should be offered");
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            action.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = action
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
-            let replacement_count = edits.iter().flat_map(|e| e.edits.iter()).filter(|e| {
-                if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
-                    te.new_text == "SessionDep"
-                } else { false }
-            }).count();
-            assert_eq!(replacement_count, 2, "should replace both occurrences of the annotation");
+            let replacement_count = edits
+                .iter()
+                .flat_map(|e| e.edits.iter())
+                .filter(|e| {
+                    if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
+                        te.new_text == "SessionDep"
+                    } else {
+                        false
+                    }
+                })
+                .count();
+            assert_eq!(
+                replacement_count, 2,
+                "should replace both occurrences of the annotation"
+            );
         } else {
             panic!("expected document_changes");
         }
@@ -2527,13 +3204,17 @@ mod tests {
         let ap = make_annotated_dep_param("db", "get_book", 1, 4, 40, "Session", "Depends(get_db)");
         let source = "@app.get(\"/books\")\ndef get_book(book_id: int, db: Annotated[Session, Depends(get_db)]): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         facts.annotated_params.push(ap);
         facts.routes.push(make_route_fact_simple("get_book", 1));
         facts.dep_defs.push(crate::state::DepDef {
             name: "get_db".to_owned(),
-            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            node_id: crate::state::NodeId {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -2546,14 +3227,25 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 20));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let ws_action = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("SessionDep") && ca.title.contains("workspace") { Some(ca) } else { None }
-            } else { None }
-        }).expect("workspace extract action should be offered");
+        let ws_action = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("SessionDep") && ca.title.contains("workspace") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("workspace extract action should be offered");
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            ws_action.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = ws_action
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             let uris: Vec<_> = edits.iter().map(|e| e.text_document.uri.as_str()).collect();
             assert!(
@@ -2566,7 +3258,13 @@ mod tests {
     }
 
     // ── create-dependency helpers ────────────────────────────────────────────
-    fn make_dep_ref(name: &str, line: u32, col_start: u32, col_end: u32, func: Option<&str>) -> crate::state::DepRef {
+    fn make_dep_ref(
+        name: &str,
+        line: u32,
+        col_start: u32,
+        col_end: u32,
+        func: Option<&str>,
+    ) -> crate::state::DepRef {
         crate::state::DepRef {
             name: name.to_owned(),
             range: Range {
@@ -2590,7 +3288,10 @@ mod tests {
             handler_range: hr,
             object_name: "app".to_owned(),
             path: crate::state::PrefixValue::Literal("/items".to_owned()),
-            path_range: Some(Range { start: Position::new(handler_line - 1, 9), end: Position::new(handler_line - 1, 17) }),
+            path_range: Some(Range {
+                start: Position::new(handler_line - 1, 9),
+                end: Position::new(handler_line - 1, 17),
+            }),
             path_quote_width: None,
             methods: vec![crate::state::Method::Get],
             response_model: None,
@@ -2612,10 +3313,13 @@ mod tests {
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
         let source = "@app.get(\"/items\")\ndef get_items(pg = Depends(get_pagination)): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         // dep_ref at the Depends(get_pagination) position — col 19..35 on line 1
-        facts.dep_refs.push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
         facts.routes.push(make_route_fact_simple("get_items", 1));
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), source.to_owned());
@@ -2625,9 +3329,16 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let titles: Vec<&str> = actions.iter().filter_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { Some(ca.title.as_str()) } else { None }
-        }).collect();
+        let titles: Vec<&str> = actions
+            .iter()
+            .filter_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    Some(ca.title.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert!(
             titles.iter().any(|t| t.contains("get_pagination")),
             "expected create-dependency action, got: {titles:?}",
@@ -2639,13 +3350,19 @@ mod tests {
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
         let source = "@app.get(\"/items\")\ndef get_items(pg = Depends(get_pagination)): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.dep_refs.push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
         // defined: dep_def for get_pagination exists (it has a function definition)
         facts.dep_defs.push(crate::state::DepDef {
             name: "get_pagination".to_owned(),
-            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            node_id: crate::state::NodeId {
+                uri: uri.clone(),
+                range: Range::default(),
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -2657,12 +3374,20 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("get_pagination") && ca.title.contains("Create dependency")
-            } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "must not offer create-dependency when dep is defined");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("get_pagination") && ca.title.contains("Create dependency")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "must not offer create-dependency when dep is defined"
+        );
     }
 
     #[test]
@@ -2671,9 +3396,12 @@ mod tests {
         let deps_uri: Uri = "file:///project/app/deps.py".parse().unwrap();
         let source = "@app.get(\"/items\")\ndef get_items(pg = Depends(get_pagination)): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.dep_refs.push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
         facts.routes.push(make_route_fact_simple("get_items", 1));
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), source.to_owned());
@@ -2684,32 +3412,70 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let action = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("get_pagination") { Some(ca) } else { None }
-            } else { None }
-        }).expect("action should exist");
+        let action = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("get_pagination") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("action should exist");
 
         // Should reference deps.py in title
-        assert!(action.title.contains("deps"), "title should reference deps module: {}", action.title);
+        assert!(
+            action.title.contains("deps"),
+            "title should reference deps module: {}",
+            action.title
+        );
 
         // Should have two document edits: one to deps.py and one to main.py
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            action.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = action
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
-            assert_eq!(edits.len(), 2, "expected 2 document edits (deps.py + main.py)");
+            assert_eq!(
+                edits.len(),
+                2,
+                "expected 2 document edits (deps.py + main.py)"
+            );
             let uris: Vec<_> = edits.iter().map(|e| e.text_document.uri.as_str()).collect();
-            assert!(uris.iter().any(|u| u.contains("deps.py")), "missing deps.py edit");
-            assert!(uris.iter().any(|u| u.contains("main.py")), "missing main.py import edit");
+            assert!(
+                uris.iter().any(|u| u.contains("deps.py")),
+                "missing deps.py edit"
+            );
+            assert!(
+                uris.iter().any(|u| u.contains("main.py")),
+                "missing main.py import edit"
+            );
 
             // The main.py edit should be an import at line 0
-            let import_edit = edits.iter()
+            let import_edit = edits
+                .iter()
                 .find(|e| e.text_document.uri.as_str().contains("main.py"))
                 .and_then(|e| e.edits.first())
-                .and_then(|e| if let tower_lsp_server::ls_types::OneOf::Left(te) = e { Some(te) } else { None })
+                .and_then(|e| {
+                    if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
+                        Some(te)
+                    } else {
+                        None
+                    }
+                })
                 .expect("missing import edit");
-            assert_eq!(import_edit.range.start.line, 0, "import should be inserted at line 0");
-            assert!(import_edit.new_text.contains("get_pagination"), "import text should mention get_pagination");
+            assert_eq!(
+                import_edit.range.start.line, 0,
+                "import should be inserted at line 0"
+            );
+            assert!(
+                import_edit.new_text.contains("get_pagination"),
+                "import text should mention get_pagination"
+            );
         } else {
             panic!("expected document_changes with edits");
         }
@@ -2720,9 +3486,12 @@ mod tests {
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
         let source = "@app.get(\"/items\")\ndef get_items(pg = Depends(get_pagination)): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.dep_refs.push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
         facts.routes.push(make_route_fact_simple("get_items", 1));
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), source.to_owned());
@@ -2732,23 +3501,52 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let action = actions.iter().find_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                if ca.title.contains("get_pagination") { Some(ca) } else { None }
-            } else { None }
-        }).expect("action should exist");
+        let action = actions
+            .iter()
+            .find_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    if ca.title.contains("get_pagination") {
+                        Some(ca)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("action should exist");
 
-        assert!(action.title.contains("above handler"), "title should say 'above handler': {}", action.title);
+        assert!(
+            action.title.contains("above handler"),
+            "title should say 'above handler': {}",
+            action.title
+        );
 
-        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) =
-            action.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+        if let Some(tower_lsp_server::ls_types::DocumentChanges::Edits(edits)) = action
+            .edit
+            .as_ref()
+            .and_then(|e| e.document_changes.as_ref())
         {
             assert_eq!(edits.len(), 1, "expected 1 document edit (inline only)");
-            let edit = edits[0].edits.first()
-                .and_then(|e| if let tower_lsp_server::ls_types::OneOf::Left(te) = e { Some(te) } else { None })
+            let edit = edits[0]
+                .edits
+                .first()
+                .and_then(|e| {
+                    if let tower_lsp_server::ls_types::OneOf::Left(te) = e {
+                        Some(te)
+                    } else {
+                        None
+                    }
+                })
                 .expect("missing text edit");
-            assert!(edit.new_text.contains("def get_pagination"), "stub should contain function def");
-            assert!(edit.new_text.contains("..."), "stub should contain ellipsis body");
+            assert!(
+                edit.new_text.contains("def get_pagination"),
+                "stub should contain function def"
+            );
+            assert!(
+                edit.new_text.contains("..."),
+                "stub should contain ellipsis body"
+            );
             // Should be inserted at the decorator line (line 0), not at the handler line
             assert_eq!(edit.range.start.line, 0, "should insert at decorator line");
         } else {
@@ -2763,10 +3561,13 @@ mod tests {
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
         let source = "pg = Depends(get_pagination)\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         // containing_func = None (module-scope dep_ref)
-        facts.dep_refs.push(make_dep_ref("get_pagination", 0, 5, 28, None));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_pagination", 0, 5, 28, None));
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), source.to_owned());
         state.linked.store(Arc::new(Linked::default()));
@@ -2774,12 +3575,20 @@ mod tests {
         let params = make_params(&uri, Position::new(0, 15));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("get_pagination")
-            } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "must not offer action when containing_func is None and no deps.py");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("get_pagination")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "must not offer action when containing_func is None and no deps.py"
+        );
     }
 
     #[test]
@@ -2788,10 +3597,15 @@ mod tests {
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
         let source = "@app.get(\"/items\")\ndef get_items(a = Depends(get_pagination), b = Depends(get_db)): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.dep_refs.push(make_dep_ref("get_pagination", 1, 18, 34, Some("get_items")));
-        facts.dep_refs.push(make_dep_ref("get_db", 1, 44, 54, Some("get_items")));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_pagination", 1, 18, 34, Some("get_items")));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_db", 1, 44, 54, Some("get_items")));
         facts.routes.push(make_route_fact_simple("get_items", 1));
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), source.to_owned());
@@ -2801,11 +3615,24 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 25));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let titles: Vec<&str> = actions.iter().filter_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { Some(ca.title.as_str()) } else { None }
-        }).collect();
-        assert!(titles.iter().any(|t| t.contains("get_pagination")), "should offer for get_pagination");
-        assert!(!titles.iter().any(|t| t.contains("get_db")), "must NOT offer for get_db when cursor misses its range");
+        let titles: Vec<&str> = actions
+            .iter()
+            .filter_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    Some(ca.title.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            titles.iter().any(|t| t.contains("get_pagination")),
+            "should offer for get_pagination"
+        );
+        assert!(
+            !titles.iter().any(|t| t.contains("get_db")),
+            "must NOT offer for get_db when cursor misses its range"
+        );
     }
 
     #[test]
@@ -2813,9 +3640,12 @@ mod tests {
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
         let source = "@app.get(\"/items\")\ndef get_items(pg = Depends(get_pagination)): ...\n";
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.dep_refs.push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
+        facts
+            .dep_refs
+            .push(make_dep_ref("get_pagination", 1, 19, 35, Some("get_items")));
         facts.routes.push(make_route_fact_simple("get_items", 1));
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), source.to_owned());
@@ -2825,12 +3655,20 @@ mod tests {
         let params = make_params(&uri, Position::new(0, 0));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("get_pagination")
-            } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "must not offer action when cursor misses range");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("get_pagination")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "must not offer action when cursor misses range"
+        );
     }
 
     #[test]
@@ -2841,10 +3679,22 @@ mod tests {
         let uri: Uri = "file:///project/books.py".parse().unwrap();
         let main_uri: Uri = "file:///project/main.py".parse().unwrap();
 
-        let pr1 = Range { start: Position::new(0, 12), end: Position::new(0, 20) };
-        let hr1 = Range { start: Position::new(1, 0), end: Position::new(1, 20) };
-        let pr2 = Range { start: Position::new(2, 12), end: Position::new(2, 30) };
-        let hr2 = Range { start: Position::new(3, 0), end: Position::new(3, 30) };
+        let pr1 = Range {
+            start: Position::new(0, 12),
+            end: Position::new(0, 20),
+        };
+        let hr1 = Range {
+            start: Position::new(1, 0),
+            end: Position::new(1, 20),
+        };
+        let pr2 = Range {
+            start: Position::new(2, 12),
+            end: Position::new(2, 30),
+        };
+        let hr2 = Range {
+            start: Position::new(3, 0),
+            end: Position::new(3, 30),
+        };
 
         let rr1 = RouteRecord {
             id: RouteId::new(&uri, "list_books", &Method::Get),
@@ -2854,11 +3704,23 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/api/books".to_owned()),
             decorator_path: "/books".to_owned(),
             chain: vec![], // chain is always empty in production
-            handler: StateLocation { uri: uri.clone(), range: hr1 },
-            path_params: vec![], response_model: None, response_model_range: None,
-            return_annotation: None, dependencies: vec![], middleware: vec![],
-            path_range: Some(pr1), path_quote_width: None, handler_params: vec![], handler_param_ranges: vec![],
-            params_insert_pos: None, handler_has_splat_args: false, handler_params_known: true,
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: hr1,
+            },
+            path_params: vec![],
+            response_model: None,
+            response_model_range: None,
+            return_annotation: None,
+            dependencies: vec![],
+            middleware: vec![],
+            path_range: Some(pr1),
+            path_quote_width: None,
+            handler_params: vec![],
+            handler_param_ranges: vec![],
+            params_insert_pos: None,
+            handler_has_splat_args: false,
+            handler_params_known: true,
         };
         let rr2 = RouteRecord {
             id: RouteId::new(&uri, "get_book", &Method::Get),
@@ -2868,17 +3730,38 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/api/books/{book_id}".to_owned()),
             decorator_path: "/books/{book_id}".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: uri.clone(), range: hr2 },
-            path_params: vec![], response_model: None, response_model_range: None,
-            return_annotation: None, dependencies: vec![], middleware: vec![],
-            path_range: Some(pr2), path_quote_width: None, handler_params: vec![], handler_param_ranges: vec![],
-            params_insert_pos: None, handler_has_splat_args: false, handler_params_known: true,
+            handler: StateLocation {
+                uri: uri.clone(),
+                range: hr2,
+            },
+            path_params: vec![],
+            response_model: None,
+            response_model_range: None,
+            return_annotation: None,
+            dependencies: vec![],
+            middleware: vec![],
+            path_range: Some(pr2),
+            path_quote_width: None,
+            handler_params: vec![],
+            handler_param_ranges: vec![],
+            params_insert_pos: None,
+            handler_has_splat_args: false,
+            handler_params_known: true,
         };
 
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut books_facts = FileFacts::new(uri.clone());
-        books_facts.routes.push(make_route_fact("list_books", "router", "/books", pr1, hr1));
-        books_facts.routes.push(make_route_fact("get_book", "router", "/books/{book_id}", pr2, hr2));
+        books_facts
+            .routes
+            .push(make_route_fact("list_books", "router", "/books", pr1, hr1));
+        books_facts.routes.push(make_route_fact(
+            "get_book",
+            "router",
+            "/books/{book_id}",
+            pr2,
+            hr2,
+        ));
         state.file_facts.insert(uri.clone(), books_facts);
         state.file_sources.insert(uri.clone(), source.to_owned());
 
@@ -2901,16 +3784,29 @@ mod tests {
         let params = make_params(&uri, Position::new(1, 0));
         let actions = code_actions(&state, &params, &PathBuf::from("/project"), &[], false);
 
-        let extract_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { ca.title.contains("Extract router") } else { false }
-        }).collect();
-        assert!(extract_actions.is_empty(), "must not offer extract router when router is already included");
+        let extract_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Extract router")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            extract_actions.is_empty(),
+            "must not offer extract router when router is already included"
+        );
     }
 
     // ── tpl/missing-template quick fixes ─────────────────────────────────────
 
     fn tpl_ref_range() -> Range {
-        Range { start: Position::new(2, 40), end: Position::new(2, 55) }
+        Range {
+            start: Position::new(2, 40),
+            end: Position::new(2, 55),
+        }
     }
 
     /// Source that puts a `"` at column 40 of line 2, matching tpl_ref_range.
@@ -2922,47 +3818,93 @@ mod tests {
     fn change_to_near_miss_offered_when_suggestion_exists() {
         use crate::state::TemplateRef;
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
         // typo: "book_lst.html" instead of "book_list.html"
-        facts.templates.push(TemplateRef { path: "book_lst.html".to_owned(), range: tpl_ref_range() });
+        facts.templates.push(TemplateRef {
+            path: "book_lst.html".to_owned(),
+            range: tpl_ref_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), tpl_ref_source());
 
         let mut linked = Linked::default();
-        linked.template_index.insert("book_list.html".to_owned(), "file:///project/tpl/book_list.html".parse().unwrap());
+        linked.template_index.insert(
+            "book_list.html".to_owned(),
+            "file:///project/tpl/book_list.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let cursor = Position::new(2, 45);
-        let actions = code_actions(&state, &make_params(&uri, cursor), &PathBuf::from("/project"), &[], false);
-        let titles: Vec<&str> = actions.iter().filter_map(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a { Some(ca.title.as_str()) } else { None }
-        }).collect();
-        assert!(titles.iter().any(|t| t.contains("book_list.html")), "change-to action should be offered");
+        let actions = code_actions(
+            &state,
+            &make_params(&uri, cursor),
+            &PathBuf::from("/project"),
+            &[],
+            false,
+        );
+        let titles: Vec<&str> = actions
+            .iter()
+            .filter_map(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    Some(ca.title.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            titles.iter().any(|t| t.contains("book_list.html")),
+            "change-to action should be offered"
+        );
     }
 
     #[test]
     fn create_template_not_offered_without_can_create_files() {
         use crate::state::TemplateRef;
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "new.html".to_owned(), range: tpl_ref_range() });
+        facts.templates.push(TemplateRef {
+            path: "new.html".to_owned(),
+            range: tpl_ref_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
-        state.can_create_files.store(false, std::sync::atomic::Ordering::Relaxed);
+        state
+            .can_create_files
+            .store(false, std::sync::atomic::Ordering::Relaxed);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("other.html".to_owned(), "file:///project/tpl/other.html".parse().unwrap());
+        linked.template_index.insert(
+            "other.html".to_owned(),
+            "file:///project/tpl/other.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let cursor = Position::new(2, 45);
-        let actions = code_actions(&state, &make_params(&uri, cursor), &PathBuf::from("/project"), &[], false);
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("Create") && ca.title.contains("new.html")
-            } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "create action must not appear without can_create_files");
+        let actions = code_actions(
+            &state,
+            &make_params(&uri, cursor),
+            &PathBuf::from("/project"),
+            &[],
+            false,
+        );
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Create") && ca.title.contains("new.html")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "create action must not appear without can_create_files"
+        );
     }
 
     #[test]
@@ -2973,47 +3915,92 @@ mod tests {
         cfg.template_roots = vec![PathBuf::from("/project/templates")];
         let state = WorkspaceState::new(cfg);
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "new.html".to_owned(), range: tpl_ref_range() });
+        facts.templates.push(TemplateRef {
+            path: "new.html".to_owned(),
+            range: tpl_ref_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
         state.file_sources.insert(uri.clone(), tpl_ref_source());
-        state.can_create_files.store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .can_create_files
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("other.html".to_owned(), "file:///project/templates/other.html".parse().unwrap());
+        linked.template_index.insert(
+            "other.html".to_owned(),
+            "file:///project/templates/other.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let cursor = Position::new(2, 45);
-        let actions = code_actions(&state, &make_params(&uri, cursor), &PathBuf::from("/project"), &[], false);
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("Create") && ca.title.contains("new.html")
-            } else { false }
-        }).collect();
-        assert!(!create_actions.is_empty(), "create action must appear when can_create_files=true and root exists");
+        let actions = code_actions(
+            &state,
+            &make_params(&uri, cursor),
+            &PathBuf::from("/project"),
+            &[],
+            false,
+        );
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("Create") && ca.title.contains("new.html")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            !create_actions.is_empty(),
+            "create action must appear when can_create_files=true and root exists"
+        );
     }
 
     #[test]
     fn no_template_actions_when_template_found_in_index() {
         use crate::state::TemplateRef;
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "index.html".to_owned(), range: tpl_ref_range() });
+        facts.templates.push(TemplateRef {
+            path: "index.html".to_owned(),
+            range: tpl_ref_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
-        state.can_create_files.store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .can_create_files
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("index.html".to_owned(), "file:///project/tpl/index.html".parse().unwrap());
+        linked.template_index.insert(
+            "index.html".to_owned(),
+            "file:///project/tpl/index.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let cursor = Position::new(2, 45);
-        let actions = code_actions(&state, &make_params(&uri, cursor), &PathBuf::from("/project"), &[], false);
-        let tpl_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("index.html")
-            } else { false }
-        }).collect();
-        assert!(tpl_actions.is_empty(), "no template actions when template is found");
+        let actions = code_actions(
+            &state,
+            &make_params(&uri, cursor),
+            &PathBuf::from("/project"),
+            &[],
+            false,
+        );
+        let tpl_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("index.html")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            tpl_actions.is_empty(),
+            "no template actions when template is found"
+        );
     }
 
     #[test]
@@ -3023,51 +4010,94 @@ mod tests {
         let mut cfg = ResolvedConfig::default_for_root(PathBuf::from("/project"));
         cfg.template_roots = vec![PathBuf::from("/project/templates")];
         let state = WorkspaceState::new(cfg);
-        state.can_create_files.store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .can_create_files
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         // Simulate a template string containing path traversal: "../../etc/passwd"
         let evil_path = "../../etc/passwd".to_owned();
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: evil_path.clone(), range: tpl_ref_range() });
+        facts.templates.push(TemplateRef {
+            path: evil_path.clone(),
+            range: tpl_ref_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("other.html".to_owned(), "file:///project/templates/other.html".parse().unwrap());
+        linked.template_index.insert(
+            "other.html".to_owned(),
+            "file:///project/templates/other.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         let cursor = Position::new(2, 45);
-        let actions = code_actions(&state, &make_params(&uri, cursor), &PathBuf::from("/project"), &[], false);
+        let actions = code_actions(
+            &state,
+            &make_params(&uri, cursor),
+            &PathBuf::from("/project"),
+            &[],
+            false,
+        );
         // Must NOT offer a "Create" action that would write outside the template root
-        let create_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.starts_with("Create") && ca.title.contains(&evil_path)
-            } else { false }
-        }).collect();
-        assert!(create_actions.is_empty(), "path traversal in template name must not produce Create action");
+        let create_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.starts_with("Create") && ca.title.contains(&evil_path)
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            create_actions.is_empty(),
+            "path traversal in template name must not produce Create action"
+        );
     }
 
     #[test]
     fn no_template_actions_when_cursor_outside_string_range() {
         use crate::state::TemplateRef;
         let uri: Uri = "file:///project/app/main.py".parse().unwrap();
-        let state = WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
+        let state =
+            WorkspaceState::new(ResolvedConfig::default_for_root(PathBuf::from("/project")));
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "missing.html".to_owned(), range: tpl_ref_range() });
+        facts.templates.push(TemplateRef {
+            path: "missing.html".to_owned(),
+            range: tpl_ref_range(),
+        });
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("other.html".to_owned(), "file:///project/tpl/other.html".parse().unwrap());
+        linked.template_index.insert(
+            "other.html".to_owned(),
+            "file:///project/tpl/other.html".parse().unwrap(),
+        );
         state.linked.store(Arc::new(linked));
 
         // Cursor is on a completely different line/column — outside tpl_ref_range().
         let cursor = Position::new(10, 0);
-        let actions = code_actions(&state, &make_params(&uri, cursor), &PathBuf::from("/project"), &[], false);
-        let tpl_actions: Vec<_> = actions.iter().filter(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.contains("missing.html")
-            } else { false }
-        }).collect();
-        assert!(tpl_actions.is_empty(), "no template actions when cursor outside string range");
+        let actions = code_actions(
+            &state,
+            &make_params(&uri, cursor),
+            &PathBuf::from("/project"),
+            &[],
+            false,
+        );
+        let tpl_actions: Vec<_> = actions
+            .iter()
+            .filter(|a| {
+                if let CodeActionOrCommand::CodeAction(ca) = a {
+                    ca.title.contains("missing.html")
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert!(
+            tpl_actions.is_empty(),
+            "no template actions when cursor outside string range"
+        );
     }
 
     #[test]
@@ -3088,7 +4118,8 @@ mod tests {
 
     #[test]
     fn import_insert_line_after_docstring_and_future() {
-        let src = "\"\"\"Module docstring.\"\"\"\nfrom __future__ import annotations\nimport fastapi\n";
+        let src =
+            "\"\"\"Module docstring.\"\"\"\nfrom __future__ import annotations\nimport fastapi\n";
         assert_eq!(import_insert_line(src), 2);
     }
 
@@ -3109,7 +4140,11 @@ mod tests {
         };
         let (start, _end, text) = extract_handler_block(&lines, handler_range).unwrap();
         assert_eq!(start, 0);
-        assert!(text.contains("\r\n"), "CRLF must be preserved, got: {:?}", text);
+        assert!(
+            text.contains("\r\n"),
+            "CRLF must be preserved, got: {:?}",
+            text
+        );
         assert_eq!(text, source);
     }
 
@@ -3126,14 +4161,19 @@ mod tests {
         let (_, end_pos, _) = extract_handler_block(&lines, handler_range).unwrap();
         // Last line is index 2; since it has no terminator, end should be (2, len_of_last_line)
         assert_eq!(end_pos.line, 2, "end line must not exceed last line");
-        assert!(end_pos.character > 0, "end character must point inside last line");
+        assert!(
+            end_pos.character > 0,
+            "end character must point inside last line"
+        );
     }
-
 }
 
 /// Find a `deps.py` or `dependencies.py` file in the same directory as the given file.
 /// Used to locate the target module for workspace-scoped alias extraction.
-fn find_dependency_file(handler_uri: &tower_lsp_server::ls_types::Uri, state: &WorkspaceState) -> Option<tower_lsp_server::ls_types::Uri> {
+fn find_dependency_file(
+    handler_uri: &tower_lsp_server::ls_types::Uri,
+    state: &WorkspaceState,
+) -> Option<tower_lsp_server::ls_types::Uri> {
     let handler_path = uri_to_path(handler_uri)?;
     let handler_dir = handler_path.parent()?;
     for name in &["deps.py", "dependencies.py"] {
@@ -3146,7 +4186,10 @@ fn find_dependency_file(handler_uri: &tower_lsp_server::ls_types::Uri, state: &W
 }
 
 /// Find a `deps.py` file in the same directory as the handler file.
-fn find_deps_file(handler_uri: &tower_lsp_server::ls_types::Uri, state: &WorkspaceState) -> Option<tower_lsp_server::ls_types::Uri> {
+fn find_deps_file(
+    handler_uri: &tower_lsp_server::ls_types::Uri,
+    state: &WorkspaceState,
+) -> Option<tower_lsp_server::ls_types::Uri> {
     let handler_path = uri_to_path(handler_uri)?;
     let handler_dir = handler_path.parent()?;
     let deps_uri = path_to_uri(&handler_dir.join("deps.py"))?;
@@ -3172,8 +4215,8 @@ fn build_create_dependency_action(
 
     if let Some(deps_uri) = find_deps_file(handler_uri, state) {
         // deps.py exists — append stub there and add import to current file
-        let module_path = uri_to_module_path(&deps_uri, workspace_root)
-            .unwrap_or_else(|| "deps".to_owned());
+        let module_path =
+            uri_to_module_path(&deps_uri, workspace_root).unwrap_or_else(|| "deps".to_owned());
         let import_text = format!("from {module_path} import {dep_name}\n");
 
         return Some(CodeAction {
@@ -3201,10 +4244,15 @@ fn build_create_dependency_action(
                         },
                         edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
                             range: {
-                                let ins = state.file_sources.get(handler_uri)
+                                let ins = state
+                                    .file_sources
+                                    .get(handler_uri)
                                     .map(|s| import_insert_line(s.as_str()))
                                     .unwrap_or(0);
-                                Range { start: Position::new(ins, 0), end: Position::new(ins, 0) }
+                                Range {
+                                    start: Position::new(ins, 0),
+                                    end: Position::new(ins, 0),
+                                }
                             },
                             new_text: import_text,
                         })],
@@ -3229,7 +4277,11 @@ fn build_create_dependency_action(
     let lines: Vec<&str> = source.lines().collect();
     let insert_line = (0..handler_line as usize)
         .rev()
-        .find(|&i| lines.get(i).is_some_and(|l| l.trim_start().starts_with('@')))
+        .find(|&i| {
+            lines
+                .get(i)
+                .is_some_and(|l| l.trim_start().starts_with('@'))
+        })
         .unwrap_or(handler_line as usize);
 
     Some(CodeAction {
@@ -3340,7 +4392,11 @@ fn build_create_model_action(
     let target_module = uri_to_module_path(target_uri, workspace_root)?;
 
     let document_changes = if target_exists {
-        let source = state.file_sources.get(target_uri).map(|s| s.clone()).unwrap_or_default();
+        let source = state
+            .file_sources
+            .get(target_uri)
+            .map(|s| s.clone())
+            .unwrap_or_default();
         // Only suppress import prepend when a pydantic import line already brings in BaseModel
         let needs_import = !source.lines().any(|l| {
             let l = l.trim();
@@ -3351,7 +4407,10 @@ fn build_create_model_action(
         let mut edits = vec![];
         if needs_import {
             edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                range: Range { start: Position::new(0, 0), end: Position::new(0, 0) },
+                range: Range {
+                    start: Position::new(0, 0),
+                    end: Position::new(0, 0),
+                },
                 new_text: "from pydantic import BaseModel\n".to_owned(),
             }));
         }
@@ -3370,9 +4429,8 @@ fn build_create_model_action(
             edits,
         }])
     } else {
-        let file_content = format!(
-            "from pydantic import BaseModel\n\nclass {model_name}(BaseModel):\n    pass\n"
-        );
+        let file_content =
+            format!("from pydantic import BaseModel\n\nclass {model_name}(BaseModel):\n    pass\n");
         tower_lsp_server::ls_types::DocumentChanges::Operations(vec![
             DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
                 uri: target_uri.clone(),
@@ -3388,7 +4446,10 @@ fn build_create_model_action(
                     version: None,
                 },
                 edits: vec![tower_lsp_server::ls_types::OneOf::Left(TextEdit {
-                    range: Range { start: Position::new(0, 0), end: Position::new(0, 0) },
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: Position::new(0, 0),
+                    },
                     new_text: file_content,
                 })],
             }),
@@ -3439,7 +4500,9 @@ fn longest_common_literal_path_prefix(paths: &[&str]) -> String {
 fn find_decorator_line(lines: &[&str], record: &crate::state::RouteRecord) -> Option<usize> {
     let def_line = record.handler.range.start.line as usize;
     (0..def_line).rev().find(|&i| {
-        lines.get(i).is_some_and(|l| l.trim_start().starts_with('@'))
+        lines
+            .get(i)
+            .is_some_and(|l| l.trim_start().starts_with('@'))
     })
 }
 
@@ -3447,27 +4510,31 @@ fn find_decorator_line(lines: &[&str], record: &crate::state::RouteRecord) -> Op
 /// For single-line decorators the path line IS the decorator line; for multi-line, scan backward.
 fn find_decorator_line_for_path(lines: &[&str], path_range: Range) -> Option<usize> {
     let path_line = path_range.start.line as usize;
-    if lines.get(path_line).is_some_and(|l| l.trim_start().starts_with('@')) {
+    if lines
+        .get(path_line)
+        .is_some_and(|l| l.trim_start().starts_with('@'))
+    {
         return Some(path_line);
     }
     (0..path_line).rev().find(|&i| {
-        lines.get(i).is_some_and(|l| l.trim_start().starts_with('@'))
+        lines
+            .get(i)
+            .is_some_and(|l| l.trim_start().starts_with('@'))
     })
 }
 
 /// Return the range of `object_name` in a decorator line `@{object_name}.method(...)`.
-fn find_object_range_in_decorator(
-    line: &str,
-    object_name: &str,
-    line_num: u32,
-) -> Option<Range> {
+fn find_object_range_in_decorator(line: &str, object_name: &str, line_num: u32) -> Option<Range> {
     let at_pos = line.find('@')?;
     let after_at = &line[at_pos + 1..];
     if !after_at.starts_with(object_name) {
         return None;
     }
     let next_idx = at_pos + 1 + object_name.len();
-    if !line.get(next_idx..).is_some_and(|rest| rest.starts_with('.')) {
+    if !line
+        .get(next_idx..)
+        .is_some_and(|rest| rest.starts_with('.'))
+    {
         return None;
     }
     Some(Range {
@@ -3508,9 +4575,10 @@ fn extract_router_action(
                     let mut keys = vec![inc.target.clone()];
                     // Also index the last dotted component (e.g. "books.router" → "router")
                     if let Some(suffix) = inc.target.rsplit('.').next()
-                        && suffix != inc.target {
-                            keys.push(suffix.to_owned());
-                        }
+                        && suffix != inc.target
+                    {
+                        keys.push(suffix.to_owned());
+                    }
                     keys
                 })
                 .collect::<Vec<_>>()
@@ -3527,7 +4595,10 @@ fn extract_router_action(
             // RouteId format: "{uri}:{handler_name}:{method}" — uri may contain colons,
             // so split from the right to get handler_name
             let handler_name = r.id.0.rsplit(':').nth(1).unwrap_or("");
-            let obj_name = object_name_map.get(handler_name).copied().unwrap_or(handler_name);
+            let obj_name = object_name_map
+                .get(handler_name)
+                .copied()
+                .unwrap_or(handler_name);
             !included_targets.contains(obj_name)
         })
         .filter(|r| matches!(r.resolved_path, ResolvedPath::Resolved(_)))
@@ -3540,8 +4611,11 @@ fn extract_router_action(
 
     // Find the handler the cursor is on
     let cursor_record = candidates.iter().copied().find(|r| {
-        position_in_range(cursor_range.start, r.handler.range.start, r.handler.range.end)
-            || position_in_range(cursor_range.end, r.handler.range.start, r.handler.range.end)
+        position_in_range(
+            cursor_range.start,
+            r.handler.range.start,
+            r.handler.range.end,
+        ) || position_in_range(cursor_range.end, r.handler.range.start, r.handler.range.end)
     })?;
 
     let cursor_obj = *object_name_map.get(cursor_record.name.as_str())?;
@@ -3579,7 +4653,8 @@ fn extract_router_action(
         .filter(|r| match &r.resolved_path {
             ResolvedPath::Resolved(p) => {
                 p == &prefix
-                    || p.get(prefix.len()..).is_some_and(|rest| rest.starts_with('/'))
+                    || p.get(prefix.len()..)
+                        .is_some_and(|rest| rest.starts_with('/'))
             }
             _ => false,
         })
@@ -3610,7 +4685,9 @@ fn extract_router_action(
     let first_deco_line = find_decorator_line(&lines, first_record)?;
 
     // Build edits, highest line first (defensive ordering for non-compliant LSP clients)
-    let mut edits: Vec<tower_lsp_server::ls_types::OneOf<TextEdit, tower_lsp_server::ls_types::AnnotatedTextEdit>> = Vec::new();
+    let mut edits: Vec<
+        tower_lsp_server::ls_types::OneOf<TextEdit, tower_lsp_server::ls_types::AnnotatedTextEdit>,
+    > = Vec::new();
 
     // Append include_router at end (highest effective line)
     edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
@@ -3650,8 +4727,7 @@ fn extract_router_action(
         // (path stripped but object not renamed) — abort the whole action.
         let deco_line = find_decorator_line_for_path(&lines, path_range)?;
         let deco_str = lines.get(deco_line)?;
-        let obj_range =
-            find_object_range_in_decorator(deco_str, cursor_obj, deco_line as u32)?;
+        let obj_range = find_object_range_in_decorator(deco_str, cursor_obj, deco_line as u32)?;
         edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
             range: obj_range,
             new_text: router_name.clone(),
@@ -3663,7 +4739,9 @@ fn extract_router_action(
     if needs_apirouter_import {
         router_decl.push_str("from fastapi import APIRouter\n");
     }
-    router_decl.push_str(&format!("{router_name} = APIRouter(prefix=\"{prefix}\")\n\n"));
+    router_decl.push_str(&format!(
+        "{router_name} = APIRouter(prefix=\"{prefix}\")\n\n"
+    ));
     edits.push(tower_lsp_server::ls_types::OneOf::Left(TextEdit {
         range: Range {
             start: Position::new(first_deco_line as u32, 0),
@@ -3690,6 +4768,3 @@ fn extract_router_action(
         ..Default::default()
     })
 }
-
-
-

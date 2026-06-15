@@ -141,9 +141,9 @@ pub fn load(workspace_root: &Path, init_options: Option<serde_json::Value>) -> R
                         .and_then(|t| t.get("fastapi"))
                         .and_then(|f| f.get("entrypoint"))
                         .and_then(|v| v.as_str())
-                    {
-                        raw.entrypoint = Some(ep.to_owned());
-                    }
+                {
+                    raw.entrypoint = Some(ep.to_owned());
+                }
             }
             Err(e) => tracing::warn!("config parse error in {}: {e}", pyproject_path.display()),
         }
@@ -173,21 +173,43 @@ pub fn load(workspace_root: &Path, init_options: Option<serde_json::Value>) -> R
 }
 
 fn merge(base: &mut RawConfig, over: RawConfig) {
-    if over.entrypoint.is_some() { base.entrypoint = over.entrypoint; }
-    if !over.templates.is_empty() { base.templates = over.templates; }
-    if !over.source_roots.is_empty() { base.source_roots = over.source_roots; }
-    if !over.env_files.is_empty() { base.env_files = over.env_files; }
-    if !over.settings_env_files.is_empty() { base.settings_env_files = over.settings_env_files; }
+    if over.entrypoint.is_some() {
+        base.entrypoint = over.entrypoint;
+    }
+    if !over.templates.is_empty() {
+        base.templates = over.templates;
+    }
+    if !over.source_roots.is_empty() {
+        base.source_roots = over.source_roots;
+    }
+    if !over.env_files.is_empty() {
+        base.env_files = over.env_files;
+    }
+    if !over.settings_env_files.is_empty() {
+        base.settings_env_files = over.settings_env_files;
+    }
     // process_env is intentionally sticky: once any source enables it, it stays on.
     // A higher-precedence source cannot disable it; use InitializationOptions to force off.
-    if over.process_env { base.process_env = true; }
-    if !over.client_fixtures.is_empty() { base.client_fixtures = over.client_fixtures; }
-    if !over.env.ignore.is_empty() { base.env.ignore = over.env.ignore; }
-    if over.features.is_some() { base.features = over.features; }
+    if over.process_env {
+        base.process_env = true;
+    }
+    if !over.client_fixtures.is_empty() {
+        base.client_fixtures = over.client_fixtures;
+    }
+    if !over.env.ignore.is_empty() {
+        base.env.ignore = over.env.ignore;
+    }
+    if over.features.is_some() {
+        base.features = over.features;
+    }
     if let Some(c) = over.check {
         let base_c = base.check.get_or_insert_with(CheckDefaults::default);
-        if !c.only.is_empty() { base_c.only = c.only; }
-        if !c.ignore.is_empty() { base_c.ignore = c.ignore; }
+        if !c.only.is_empty() {
+            base_c.only = c.only;
+        }
+        if !c.ignore.is_empty() {
+            base_c.ignore = c.ignore;
+        }
     }
 }
 
@@ -210,7 +232,9 @@ fn resolve(root: &Path, raw: RawConfig) -> ResolvedConfig {
     let infer_roots = {
         let mut v = vec![root.to_owned()];
         let src = root.join("src");
-        if src.is_dir() { v.push(src); }
+        if src.is_dir() {
+            v.push(src);
+        }
         for r in pyproject_source_roots(root) {
             if !v.contains(&r) {
                 v.push(r);
@@ -225,14 +249,24 @@ fn resolve(root: &Path, raw: RawConfig) -> ResolvedConfig {
         template_roots: if raw.templates.is_empty() {
             auto_detect_templates(root)
         } else {
-            raw.templates.iter().filter_map(|p| safe_join(root, p)).collect()
+            raw.templates
+                .iter()
+                .filter_map(|p| safe_join(root, p))
+                .collect()
         },
         source_roots: if raw.source_roots.is_empty() {
             infer_roots
         } else {
-            raw.source_roots.iter().filter_map(|p| safe_join(root, p)).collect()
+            raw.source_roots
+                .iter()
+                .filter_map(|p| safe_join(root, p))
+                .collect()
         },
-        env_files: raw.env_files.iter().filter_map(|p| safe_join(root, p)).collect(),
+        env_files: raw
+            .env_files
+            .iter()
+            .filter_map(|p| safe_join(root, p))
+            .collect(),
         settings_env_files: raw.settings_env_files,
         process_env: raw.process_env,
         client_fixtures: raw.client_fixtures,
@@ -276,12 +310,13 @@ fn parse_pyproject_roots(doc: &toml::Value, workspace_root: &Path) -> Vec<PathBu
         .get("setuptools")
         .and_then(|s| s.get("package-dir"))
         .and_then(|d| d.as_table())
-        && let Some(src) = pkg_dir.get("").and_then(|v| v.as_str()) {
-            let p = workspace_root.join(src);
-            if p.is_dir() && !roots.contains(&p) {
-                roots.push(p);
-            }
+        && let Some(src) = pkg_dir.get("").and_then(|v| v.as_str())
+    {
+        let p = workspace_root.join(src);
+        if p.is_dir() && !roots.contains(&p) {
+            roots.push(p);
         }
+    }
 
     // [tool.hatch.build.targets.wheel] sources = [{from = "src", ...}]
     if let Some(sources) = tool
@@ -416,13 +451,17 @@ package-dir = "src"
     #[test]
     fn pyproject_tool_fastapi_lsp_section_is_read() {
         let dir = tmp_dir();
-        std::fs::write(dir.join("pyproject.toml"), r#"
+        std::fs::write(
+            dir.join("pyproject.toml"),
+            r#"
 [project]
 name = "myapp"
 
 [tool.fastapi-lsp]
 templates = ["app/templates"]
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let cfg = load(&dir, None);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(cfg.template_roots, vec![dir.join("app/templates")]);
@@ -432,10 +471,14 @@ templates = ["app/templates"]
     fn fastapi_lsp_toml_takes_precedence_over_pyproject() {
         let dir = tmp_dir();
         std::fs::write(dir.join("fastapi-lsp.toml"), "templates = [\"own/tpl\"]\n").unwrap();
-        std::fs::write(dir.join("pyproject.toml"), r#"
+        std::fs::write(
+            dir.join("pyproject.toml"),
+            r#"
 [tool.fastapi-lsp]
 templates = ["pyproject/tpl"]
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let cfg = load(&dir, None);
         let _ = std::fs::remove_dir_all(&dir);
         // fastapi-lsp.toml sets templates, merge overwrites pyproject value
@@ -445,10 +488,14 @@ templates = ["pyproject/tpl"]
     #[test]
     fn tool_fastapi_entrypoint_used_as_fallback() {
         let dir = tmp_dir();
-        std::fs::write(dir.join("pyproject.toml"), r#"
+        std::fs::write(
+            dir.join("pyproject.toml"),
+            r#"
 [tool.fastapi]
 entrypoint = "app/main.py"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let cfg = load(&dir, None);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(cfg.entrypoint, Some(dir.join("app/main.py")));
@@ -457,10 +504,14 @@ entrypoint = "app/main.py"
     #[test]
     fn init_options_entrypoint_overrides_tool_fastapi() {
         let dir = tmp_dir();
-        std::fs::write(dir.join("pyproject.toml"), r#"
+        std::fs::write(
+            dir.join("pyproject.toml"),
+            r#"
 [tool.fastapi]
 entrypoint = "app/main.py"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let opts = serde_json::json!({ "entrypoint": "override/main.py" });
         let cfg = load(&dir, Some(opts));
         let _ = std::fs::remove_dir_all(&dir);
@@ -470,10 +521,14 @@ entrypoint = "app/main.py"
     #[test]
     fn malformed_pyproject_tool_section_degrades_to_defaults() {
         let dir = tmp_dir();
-        std::fs::write(dir.join("pyproject.toml"), r#"
+        std::fs::write(
+            dir.join("pyproject.toml"),
+            r#"
 [tool.fastapi-lsp]
 templates = "not-a-list"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         // Should not panic; templates defaults to auto-detection
         let cfg = load(&dir, None);
         let _ = std::fs::remove_dir_all(&dir);
@@ -484,13 +539,17 @@ templates = "not-a-list"
     #[test]
     fn fastapi_lsp_entrypoint_takes_precedence_over_tool_fastapi_entrypoint() {
         let dir = tmp_dir();
-        std::fs::write(dir.join("pyproject.toml"), r#"
+        std::fs::write(
+            dir.join("pyproject.toml"),
+            r#"
 [tool.fastapi-lsp]
 entrypoint = "lsp/entry.py"
 
 [tool.fastapi]
 entrypoint = "should/not/win.py"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let cfg = load(&dir, None);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(cfg.entrypoint, Some(dir.join("lsp/entry.py")));
@@ -510,7 +569,10 @@ entrypoint = "should/not/win.py"
     #[test]
     fn safe_join_relative_path_is_accepted() {
         let root = Path::new("/workspace");
-        assert_eq!(safe_join(root, "app/templates"), Some(PathBuf::from("/workspace/app/templates")));
+        assert_eq!(
+            safe_join(root, "app/templates"),
+            Some(PathBuf::from("/workspace/app/templates"))
+        );
     }
 
     #[test]
@@ -534,7 +596,10 @@ entrypoint = "should/not/win.py"
         let opts = serde_json::json!({ "templates": ["../../malicious"] });
         let cfg = load(&dir, Some(opts));
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(cfg.template_roots.is_empty(), "path escape must be rejected");
+        assert!(
+            cfg.template_roots.is_empty(),
+            "path escape must be rejected"
+        );
     }
 
     #[test]
@@ -543,6 +608,9 @@ entrypoint = "should/not/win.py"
         let opts = serde_json::json!({ "entrypoint": "/etc/passwd" });
         let cfg = load(&dir, Some(opts));
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(cfg.entrypoint.is_none(), "absolute entrypoint must be rejected");
+        assert!(
+            cfg.entrypoint.is_none(),
+            "absolute entrypoint must be rejected"
+        );
     }
 }

@@ -508,7 +508,6 @@ pub struct DepGraph {
     pub override_sites: HashMap<NodeId, Vec<Location>>,
 }
 
-
 #[derive(Default)]
 pub struct PathTrie {
     pub root: TrieNode,
@@ -521,7 +520,6 @@ pub struct TrieNode {
     pub path_param: Option<(String, Box<TrieNode>)>,
     pub routes: Vec<RouteId>,
 }
-
 
 #[derive(Default)]
 pub struct Linked {
@@ -548,7 +546,6 @@ pub struct Linked {
     /// dep_name → param_names, precomputed for route/param-missing-arg checks.
     pub dep_params: HashMap<String, Vec<String>>,
 }
-
 
 // ── WorkspaceState ────────────────────────────────────────────────────────────
 
@@ -611,7 +608,10 @@ impl WorkspaceState {
     }
 
     pub fn bump_generation(&self) -> u64 {
-        let next = self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let next = self
+            .generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
         let _ = self.link_tx.send(next);
         next
     }
@@ -646,7 +646,11 @@ impl WorkspaceState {
 
 // ── Positions ─────────────────────────────────────────────────────────────────
 
-pub fn range_from_node(node: tree_sitter::Node<'_>, src: &[u8], enc: crate::offset::Encoding) -> Range {
+pub fn range_from_node(
+    node: tree_sitter::Node<'_>,
+    src: &[u8],
+    enc: crate::offset::Encoding,
+) -> Range {
     Range {
         start: crate::offset::offset_to_position(src, node.start_byte(), enc),
         end: crate::offset::offset_to_position(src, node.end_byte(), enc),

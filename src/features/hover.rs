@@ -39,10 +39,7 @@ fn route_record_at(
         .cloned()
 }
 
-fn route_card(
-    _linked: &crate::state::Linked,
-    record: RouteRecord,
-) -> String {
+fn route_card(_linked: &crate::state::Linked, record: RouteRecord) -> String {
     let path_str = match &record.resolved_path {
         ResolvedPath::Resolved(p) => p.clone(),
         ResolvedPath::Unresolved => format!("⟨unresolved⟩{}", record.decorator_path),
@@ -71,7 +68,10 @@ fn route_card(
     }
 
     if !record.dependencies.is_empty() {
-        lines.push(format!("- dependencies: {}", record.dependencies.join(", ")));
+        lines.push(format!(
+            "- dependencies: {}",
+            record.dependencies.join(", ")
+        ));
     }
 
     if !record.path_params.is_empty() {
@@ -160,7 +160,9 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
         for fe in state.file_facts.iter() {
             for param in &fe.plain_typed_params {
                 if alias_names.contains(&param.type_name) {
-                    if let Some(display) = handler_func_to_display.get(param.containing_func.as_str()) {
+                    if let Some(display) =
+                        handler_func_to_display.get(param.containing_func.as_str())
+                    {
                         using_route_set.insert(display.clone());
                     }
                 }
@@ -179,10 +181,12 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
         .map(|ids| {
             ids.iter()
                 .filter_map(|id| {
-                    state
-                        .file_facts
-                        .get(&id.uri)
-                        .and_then(|f| f.dep_defs.iter().find(|d| d.node_id == *id).map(|d| d.name.clone()))
+                    state.file_facts.get(&id.uri).and_then(|f| {
+                        f.dep_defs
+                            .iter()
+                            .find(|d| d.node_id == *id)
+                            .map(|d| d.name.clone())
+                    })
                 })
                 .collect()
         })
@@ -196,10 +200,12 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
         .map(|ids| {
             ids.iter()
                 .filter_map(|id| {
-                    state
-                        .file_facts
-                        .get(&id.uri)
-                        .and_then(|f| f.dep_defs.iter().find(|d| d.node_id == *id).map(|d| d.name.clone()))
+                    state.file_facts.get(&id.uri).and_then(|f| {
+                        f.dep_defs
+                            .iter()
+                            .find(|d| d.node_id == *id)
+                            .map(|d| d.name.clone())
+                    })
                 })
                 .collect()
         })
@@ -211,11 +217,17 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
     let summary = match (route_count, dep_count) {
         (0, 0) => "unused".to_owned(),
         (r, 0) => format!("used by {} route{}", r, if r == 1 { "" } else { "s" }),
-        (0, d) => format!("used by {} dependenc{}", d, if d == 1 { "y" } else { "ies" }),
+        (0, d) => format!(
+            "used by {} dependenc{}",
+            d,
+            if d == 1 { "y" } else { "ies" }
+        ),
         (r, d) => format!(
             "used by {} route{}, {} dependenc{}",
-            r, if r == 1 { "" } else { "s" },
-            d, if d == 1 { "y" } else { "ies" }
+            r,
+            if r == 1 { "" } else { "s" },
+            d,
+            if d == 1 { "y" } else { "ies" }
         ),
     };
 
@@ -248,22 +260,23 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
 
     // Override sites (REQ-DI-05)
     if let Some(sites) = linked.dep_graph.override_sites.get(&dep.node_id)
-        && !sites.is_empty() {
-            let site_strs: Vec<String> = sites
-                .iter()
-                .map(|loc| {
-                    let parts: Vec<&str> = loc.uri.as_str().split('/').collect();
-                    let n = parts.len();
-                    let display = if n >= 2 {
-                        format!("{}/{}", parts[n - 2], parts[n - 1])
-                    } else {
-                        parts.last().copied().unwrap_or("?").to_owned()
-                    };
-                    format!("`{}:{}`", display, loc.range.start.line + 1)
-                })
-                .collect();
-            lines.push(format!("- overridden in: {}", site_strs.join(", ")));
-        }
+        && !sites.is_empty()
+    {
+        let site_strs: Vec<String> = sites
+            .iter()
+            .map(|loc| {
+                let parts: Vec<&str> = loc.uri.as_str().split('/').collect();
+                let n = parts.len();
+                let display = if n >= 2 {
+                    format!("{}/{}", parts[n - 2], parts[n - 1])
+                } else {
+                    parts.last().copied().unwrap_or("?").to_owned()
+                };
+                format!("`{}:{}`", display, loc.range.start.line + 1)
+            })
+            .collect();
+        lines.push(format!("- overridden in: {}", site_strs.join(", ")));
+    }
 
     Some(make_hover(lines.join("\n")))
 }
@@ -364,9 +377,10 @@ pub fn env_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
     let linked = state.linked.load();
 
     // Find an env lookup site under the cursor
-    let site = facts.env_lookups.iter().find(|s| {
-        position_in_range(pos, s.range.start, s.range.end)
-    })?;
+    let site = facts
+        .env_lookups
+        .iter()
+        .find(|s| position_in_range(pos, s.range.start, s.range.end))?;
 
     let key = &site.key;
     let md = env_entry_card(key, linked.env_index.get(key));
@@ -446,7 +460,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(format!("/{name}")),
             decorator_path: format!("/{name}"),
             chain: vec![],
-            handler: StateLocation { uri, range: Range::default() },
+            handler: StateLocation {
+                uri,
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,
@@ -475,14 +492,17 @@ mod tests {
         let mut facts = FileFacts::new(uri.clone());
         facts.dep_defs.push(DepDef {
             name: "get_db".to_owned(),
-            node_id: NodeId { uri: uri.clone(), range: def_range },
+            node_id: NodeId {
+                uri: uri.clone(),
+                range: def_range,
+            },
             has_yield: false,
             param_names: vec![],
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
@@ -495,9 +515,18 @@ mod tests {
             tower_lsp_server::ls_types::HoverContents::Markup(m) => m.value,
             _ => panic!("expected markup"),
         };
-        assert!(md.contains("used by 1 route"), "header should say '1 route', got: {md}");
-        assert!(md.contains("`list_books` (route)"), "used-by line should list route");
-        assert!(md.contains("uses: —"), "uses line should show — when no sub-deps");
+        assert!(
+            md.contains("used by 1 route"),
+            "header should say '1 route', got: {md}"
+        );
+        assert!(
+            md.contains("`list_books` (route)"),
+            "used-by line should list route"
+        );
+        assert!(
+            md.contains("uses: —"),
+            "uses line should show — when no sub-deps"
+        );
     }
 
     #[test]
@@ -510,14 +539,17 @@ mod tests {
         let mut facts = FileFacts::new(uri.clone());
         facts.dep_defs.push(DepDef {
             name: "unused_dep".to_owned(),
-            node_id: NodeId { uri: uri.clone(), range: def_range },
+            node_id: NodeId {
+                uri: uri.clone(),
+                range: def_range,
+            },
             has_yield: false,
             param_names: vec![],
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
 
         let hover = dep_hover(&state, &uri, Position::new(5, 8)).unwrap();
@@ -525,9 +557,18 @@ mod tests {
             tower_lsp_server::ls_types::HoverContents::Markup(m) => m.value,
             _ => panic!("expected markup"),
         };
-        assert!(md.contains("unused"), "header should say 'unused', got: {md}");
-        assert!(md.contains("used by: —"), "unused dep should show '- used by: —'");
-        assert!(!md.contains("(route)"), "unused dep should not list any routes");
+        assert!(
+            md.contains("unused"),
+            "header should say 'unused', got: {md}"
+        );
+        assert!(
+            md.contains("used by: —"),
+            "unused dep should show '- used by: —'"
+        );
+        assert!(
+            !md.contains("(route)"),
+            "unused dep should not list any routes"
+        );
     }
 
     #[test]
@@ -547,21 +588,30 @@ mod tests {
         let mut facts = FileFacts::new(uri_app.clone());
         facts.dep_defs.push(DepDef {
             name: "get_db".to_owned(),
-            node_id: NodeId { uri: uri_app.clone(), range: def_range },
+            node_id: NodeId {
+                uri: uri_app.clone(),
+                range: def_range,
+            },
             has_yield: true,
             param_names: vec![],
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri_app.clone(), facts);
 
-        let def_node = NodeId { uri: uri_app.clone(), range: def_range };
+        let def_node = NodeId {
+            uri: uri_app.clone(),
+            range: def_range,
+        };
         let mut linked = Linked::default();
         linked.dep_graph.override_sites.insert(
             def_node,
-            vec![StateLocation { uri: uri_test, range: override_range }],
+            vec![StateLocation {
+                uri: uri_test,
+                range: override_range,
+            }],
         );
         state.linked.store(Arc::new(linked));
 
@@ -571,7 +621,10 @@ mod tests {
             _ => panic!("expected markup"),
         };
         assert!(md.contains("overridden in"), "should mention override site");
-        assert!(md.contains("tests/conftest.py"), "should show dir/file path");
+        assert!(
+            md.contains("tests/conftest.py"),
+            "should show dir/file path"
+        );
         assert!(md.contains("generator"), "should mention has_yield");
     }
 
@@ -592,7 +645,10 @@ mod tests {
         let mut facts = FileFacts::new(uri_app.clone());
         facts.dep_defs.push(DepDef {
             name: "get_db".to_owned(),
-            node_id: NodeId { uri: uri_app.clone(), range: def_range },
+            node_id: NodeId {
+                uri: uri_app.clone(),
+                range: def_range,
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -605,9 +661,9 @@ mod tests {
             caller_node_id: None,
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri_app.clone(), facts);
 
         // Route exists in route_index with `read_items` as handler — no dependencies vec
@@ -621,8 +677,14 @@ mod tests {
             tower_lsp_server::ls_types::HoverContents::Markup(m) => m.value,
             _ => panic!("expected markup"),
         };
-        assert!(md.contains("used by 1 route"), "parameter-level dep should count; got: {md}");
-        assert!(md.contains("`read_items` (route)"), "should list the route using the dep");
+        assert!(
+            md.contains("used by 1 route"),
+            "parameter-level dep should count; got: {md}"
+        );
+        assert!(
+            md.contains("`read_items` (route)"),
+            "should list the route using the dep"
+        );
     }
 
     #[test]
@@ -633,12 +695,18 @@ mod tests {
         // The hover must say "used by 1 route", not "unused".
         let uri: tower_lsp_server::ls_types::Uri = "file:///app/deps.py".parse().unwrap();
         let route_uri: tower_lsp_server::ls_types::Uri = "file:///app/routes.py".parse().unwrap();
-        let def_range = Range { start: Position::new(3, 4), end: Position::new(3, 28) };
+        let def_range = Range {
+            start: Position::new(3, 4),
+            end: Position::new(3, 28),
+        };
 
         let mut facts = FileFacts::new(uri.clone());
         facts.dep_defs.push(DepDef {
             name: "_fetch_private_contract".to_owned(),
-            node_id: NodeId { uri: uri.clone(), range: def_range },
+            node_id: NodeId {
+                uri: uri.clone(),
+                range: def_range,
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -648,12 +716,14 @@ mod tests {
         );
 
         let mut route_facts = FileFacts::new(route_uri.clone());
-        route_facts.plain_typed_params.push(crate::state::PlainTypedParam {
-            containing_func: "get_contract".to_owned(),
-            param_name: "contract".to_owned(),
-            type_name: "CurrentPrivateContract".to_owned(),
-            annotation_range: Range::default(),
-        });
+        route_facts
+            .plain_typed_params
+            .push(crate::state::PlainTypedParam {
+                containing_func: "get_contract".to_owned(),
+                param_name: "contract".to_owned(),
+                type_name: "CurrentPrivateContract".to_owned(),
+                annotation_range: Range::default(),
+            });
 
         let state = make_state();
         state.file_facts.insert(uri.clone(), facts);
@@ -673,7 +743,10 @@ mod tests {
             md.contains("used by 1 route"),
             "dep used via type alias must not show 'unused'; got: {md}"
         );
-        assert!(md.contains("`get_contract` (route)"), "should list the route; got: {md}");
+        assert!(
+            md.contains("`get_contract` (route)"),
+            "should list the route; got: {md}"
+        );
     }
 
     #[test]
@@ -684,12 +757,18 @@ mod tests {
         // usage is found and displayed using the route name.
         let uri: tower_lsp_server::ls_types::Uri = "file:///app/deps.py".parse().unwrap();
         let route_uri: tower_lsp_server::ls_types::Uri = "file:///app/routes.py".parse().unwrap();
-        let def_range = Range { start: Position::new(3, 4), end: Position::new(3, 28) };
+        let def_range = Range {
+            start: Position::new(3, 4),
+            end: Position::new(3, 28),
+        };
 
         let mut facts = FileFacts::new(uri.clone());
         facts.dep_defs.push(DepDef {
             name: "_fetch_contract".to_owned(),
-            node_id: NodeId { uri: uri.clone(), range: def_range },
+            node_id: NodeId {
+                uri: uri.clone(),
+                range: def_range,
+            },
             has_yield: false,
             param_names: vec![],
         });
@@ -698,12 +777,14 @@ mod tests {
             .insert("CurrentContract".to_owned(), "_fetch_contract".to_owned());
 
         let mut route_facts = FileFacts::new(route_uri.clone());
-        route_facts.plain_typed_params.push(crate::state::PlainTypedParam {
-            containing_func: "upload_contract_view".to_owned(),
-            param_name: "contract".to_owned(),
-            type_name: "CurrentContract".to_owned(),
-            annotation_range: Range::default(),
-        });
+        route_facts
+            .plain_typed_params
+            .push(crate::state::PlainTypedParam {
+                containing_func: "upload_contract_view".to_owned(),
+                param_name: "contract".to_owned(),
+                type_name: "CurrentContract".to_owned(),
+                annotation_range: Range::default(),
+            });
 
         // RouteId in canonical format: "{uri}:{func}:{METHOD}"
         let id = RouteId(format!("{}:upload_contract_view:POST", route_uri.as_str()));
@@ -715,7 +796,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/contracts/upload".to_owned()),
             decorator_path: "/contracts/upload".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: route_uri.clone(), range: Range::default() },
+            handler: StateLocation {
+                uri: route_uri.clone(),
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,
@@ -757,9 +841,9 @@ mod tests {
     // ── include_hover ─────────────────────────────────────────────────────────
 
     fn make_state() -> Arc<crate::state::WorkspaceState> {
-        crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        )
+        crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ))
     }
 
     #[test]
@@ -779,7 +863,9 @@ mod tests {
             end: Position::new(5, 50),
         };
         let mut main_facts = FileFacts::new(main_uri.clone());
-        main_facts.import_alias_originals.insert("projects_router".to_owned(), "router".to_owned());
+        main_facts
+            .import_alias_originals
+            .insert("projects_router".to_owned(), "router".to_owned());
         main_facts.includes.push(crate::state::IncludeCall {
             target: "projects_router".to_owned(),
             prefix: crate::state::PrefixValue::Literal("/v1/projects".to_owned()),
@@ -821,7 +907,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved("/v1/projects/".to_owned()),
             decorator_path: "/".to_owned(),
             chain: vec![],
-            handler: StateLocation { uri: router_uri, range: Range::default() },
+            handler: StateLocation {
+                uri: router_uri,
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,

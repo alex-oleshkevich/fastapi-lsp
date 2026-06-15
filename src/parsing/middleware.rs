@@ -1,6 +1,6 @@
-use tree_sitter::{Node, Tree};
 #[cfg(test)]
 use tower_lsp_server::ls_types::Uri;
+use tree_sitter::{Node, Tree};
 
 use crate::state::{FileFacts, MiddlewareCall, MwClassDecl, MwKwarg, MwSource, range_from_node};
 
@@ -8,32 +8,41 @@ use crate::state::{FileFacts, MiddlewareCall, MwClassDecl, MwKwarg, MwSource, ra
 /// Each entry: (class_name, &[(kwarg_name, type_and_default)])
 /// Versioned against Starlette 0.41 docs.
 pub static STOCK_MIDDLEWARE: &[(&str, &[(&str, &str)])] = &[
-    ("CORSMiddleware", &[
-        ("allow_origins",       "list[str] = []"),
-        ("allow_methods",       r#"list[str] = ["GET"]"#),
-        ("allow_headers",       "list[str] = []"),
-        ("allow_credentials",   "bool = False"),
-        ("allow_origin_regex",  "str | None = None"),
-        ("expose_headers",      "list[str] = []"),
-        ("max_age",             "int = 600"),
-    ]),
-    ("TrustedHostMiddleware", &[
-        ("allowed_hosts", r#"list[str] = ["*"]"#),
-        ("www_redirect",  "bool = True"),
-    ]),
-    ("GZipMiddleware", &[
-        ("minimum_size", "int = 500"),
-        ("compresslevel","int = 9"),
-    ]),
-    ("SessionMiddleware", &[
-        ("secret_key",      "str"),
-        ("session_cookie",  r#"str = "session""#),
-        ("max_age",         "int = 14 * 24 * 60 * 60"),
-        ("path",            r#"str = "/""#),
-        ("same_site",       r#"str = "lax""#),
-        ("https_only",      "bool = False"),
-        ("domain",          "str | None = None"),
-    ]),
+    (
+        "CORSMiddleware",
+        &[
+            ("allow_origins", "list[str] = []"),
+            ("allow_methods", r#"list[str] = ["GET"]"#),
+            ("allow_headers", "list[str] = []"),
+            ("allow_credentials", "bool = False"),
+            ("allow_origin_regex", "str | None = None"),
+            ("expose_headers", "list[str] = []"),
+            ("max_age", "int = 600"),
+        ],
+    ),
+    (
+        "TrustedHostMiddleware",
+        &[
+            ("allowed_hosts", r#"list[str] = ["*"]"#),
+            ("www_redirect", "bool = True"),
+        ],
+    ),
+    (
+        "GZipMiddleware",
+        &[("minimum_size", "int = 500"), ("compresslevel", "int = 9")],
+    ),
+    (
+        "SessionMiddleware",
+        &[
+            ("secret_key", "str"),
+            ("session_cookie", r#"str = "session""#),
+            ("max_age", "int = 14 * 24 * 60 * 60"),
+            ("path", r#"str = "/""#),
+            ("same_site", r#"str = "lax""#),
+            ("https_only", "bool = False"),
+            ("domain", "str | None = None"),
+        ],
+    ),
     ("HTTPSRedirectMiddleware", &[]),
 ];
 
@@ -58,9 +67,10 @@ fn walk(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset::E
         }
         "expression_statement" => {
             if let Some(inner) = node.child(0)
-                && inner.kind() == "call" {
-                    extract_mw_call(src, inner, facts, enc);
-                }
+                && inner.kind() == "call"
+            {
+                extract_mw_call(src, inner, facts, enc);
+            }
             recurse(src, node, facts, enc);
         }
         "assignment" => {
@@ -80,7 +90,12 @@ fn recurse(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset
 
 // ── `app.add_middleware(ClassName, ...)` ─────────────────────────────────────
 
-fn extract_mw_call(src: &[u8], call: Node<'_>, facts: &mut FileFacts, enc: crate::offset::Encoding) {
+fn extract_mw_call(
+    src: &[u8],
+    call: Node<'_>,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+) {
     let callee = match call.child_by_field_name("function") {
         Some(n) => n,
         None => return,
@@ -124,7 +139,12 @@ fn extract_mw_call(src: &[u8], call: Node<'_>, facts: &mut FileFacts, enc: crate
 
 // ── `@app.middleware("http")` decorator ──────────────────────────────────────
 
-fn extract_mw_decorator(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset::Encoding) {
+fn extract_mw_decorator(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+) {
     let mut func_node = None;
     let mut decorators = vec![];
 
@@ -196,7 +216,12 @@ fn extract_mw_decorator(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: 
 
 // ── Workspace class: `__init__(self, app, ...)` ───────────────────────────────
 
-fn extract_mw_class(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset::Encoding) {
+fn extract_mw_class(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+) {
     let class_name = match node.child_by_field_name("name") {
         Some(n) => node_text(src, n).to_owned(),
         None => return,
@@ -210,13 +235,19 @@ fn extract_mw_class(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crat
     // Look for `def __init__` inside the class body
     let mut cursor = body.walk();
     for child in body.children(&mut cursor) {
-        if matches!(child.kind(), "function_definition" | "async_function_definition" | "decorated_definition") {
+        if matches!(
+            child.kind(),
+            "function_definition" | "async_function_definition" | "decorated_definition"
+        ) {
             let func = if child.kind() == "decorated_definition" {
                 // Find the inner function/async_function inside a decorated def
                 let mut c = child.walk();
                 let mut inner = None;
                 for gc in child.children(&mut c) {
-                    if matches!(gc.kind(), "function_definition" | "async_function_definition") {
+                    if matches!(
+                        gc.kind(),
+                        "function_definition" | "async_function_definition"
+                    ) {
                         inner = Some(gc);
                         break;
                     }
@@ -285,10 +316,15 @@ fn extract_init_params(src: &[u8], params: Node<'_>) -> Vec<MwKwarg> {
                     positional_idx += 1;
                     continue;
                 }
-                kwargs.push(MwKwarg { name: name.to_owned(), detail: None });
+                kwargs.push(MwKwarg {
+                    name: name.to_owned(),
+                    detail: None,
+                });
                 positional_idx += 1;
             }
-            "default_parameter" | "typed_parameter" | "typed_default_parameter"
+            "default_parameter"
+            | "typed_parameter"
+            | "typed_default_parameter"
             | "keyword_only_parameter" => {
                 let param_name = match child.child(0) {
                     Some(n) if n.kind() == "identifier" => node_text(src, n),
@@ -304,12 +340,18 @@ fn extract_init_params(src: &[u8], params: Node<'_>) -> Vec<MwKwarg> {
                     continue;
                 }
                 let detail = param_detail(src, child);
-                kwargs.push(MwKwarg { name: param_name.to_owned(), detail });
+                kwargs.push(MwKwarg {
+                    name: param_name.to_owned(),
+                    detail,
+                });
                 positional_idx += 1;
             }
-            "dictionary_splat_pattern" | "list_splat_pattern"
-            | "keyword_separator" | "positional_separator"
-            | "list_splat_argument" | "dictionary_splat_argument" => {}
+            "dictionary_splat_pattern"
+            | "list_splat_pattern"
+            | "keyword_separator"
+            | "positional_separator"
+            | "list_splat_argument"
+            | "dictionary_splat_argument" => {}
             _ => {
                 positional_idx += 1;
             }
@@ -329,9 +371,9 @@ fn param_detail(src: &[u8], param: Node<'_>) -> Option<String> {
         .map(|n| node_text(src, n).to_owned());
     match (annotation, default) {
         (Some(a), Some(d)) => Some(format!("{a} = {d}")),
-        (Some(a), None)    => Some(a),
-        (None, Some(d))    => Some(format!("= {d}")),
-        (None, None)       => None,
+        (Some(a), None) => Some(a),
+        (None, Some(d)) => Some(format!("= {d}")),
+        (None, None) => None,
     }
 }
 
@@ -343,9 +385,10 @@ fn extract_existing_kwargs(src: &[u8], args: Node<'_>) -> Vec<String> {
         if child.kind() == "keyword_argument" {
             // keyword_argument has no named 'name' field in tree-sitter-python; child(0) is the key.
             if let Some(key) = child.child(0)
-                && key.kind() == "identifier" {
-                    names.push(node_text(src, key).to_owned());
-                }
+                && key.kind() == "identifier"
+            {
+                names.push(node_text(src, key).to_owned());
+            }
         }
     }
     names
@@ -375,7 +418,10 @@ fn first_positional_node(args: Node<'_>) -> Option<Node<'_>> {
 fn first_positional_end(args: Node<'_>) -> Option<tower_lsp_server::ls_types::Position> {
     let node = first_positional_node(args)?;
     let end = node.end_position();
-    Some(tower_lsp_server::ls_types::Position::new(end.row as u32, end.column as u32))
+    Some(tower_lsp_server::ls_types::Position::new(
+        end.row as u32,
+        end.column as u32,
+    ))
 }
 
 fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
@@ -384,7 +430,12 @@ fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
 
 // ── `app = FastAPI(middleware=[Middleware(ClassName, ...)])` ──────────────────
 
-fn extract_from_app_constructor(src: &[u8], node: Node<'_>, facts: &mut FileFacts, enc: crate::offset::Encoding) {
+fn extract_from_app_constructor(
+    src: &[u8],
+    node: Node<'_>,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+) {
     let lhs = match node.child_by_field_name("left") {
         Some(n) if n.kind() == "identifier" => n,
         _ => return,
@@ -405,12 +456,16 @@ fn extract_from_app_constructor(src: &[u8], node: Node<'_>, facts: &mut FileFact
         let mut found = None;
         let mut cursor = args.walk();
         for kwarg in args.children(&mut cursor) {
-            if kwarg.kind() != "keyword_argument" { continue; }
+            if kwarg.kind() != "keyword_argument" {
+                continue;
+            }
             let is_mw = kwarg
                 .child(0)
                 .map(|k| k.kind() == "identifier" && node_text(src, k) == "middleware")
                 .unwrap_or(false);
-            if !is_mw { continue; }
+            if !is_mw {
+                continue;
+            }
             let mut vc = kwarg.walk();
             for child in kwarg.children(&mut vc) {
                 if child.kind() == "list" {
@@ -428,18 +483,24 @@ fn extract_from_app_constructor(src: &[u8], node: Node<'_>, facts: &mut FileFact
 
     let mut list_cursor = middleware_list.walk();
     for item in middleware_list.children(&mut list_cursor) {
-        if item.kind() != "call" { continue; }
+        if item.kind() != "call" {
+            continue;
+        }
         let is_middleware_call = item
             .child_by_field_name("function")
             .map(|f| f.kind() == "identifier" && node_text(src, f) == "Middleware")
             .unwrap_or(false);
-        if !is_middleware_call { continue; }
+        if !is_middleware_call {
+            continue;
+        }
         let item_args = match item.child_by_field_name("arguments") {
             Some(a) => a,
             None => continue,
         };
         let class_name = first_positional_text(src, item_args);
-        if class_name.is_empty() { continue; }
+        if class_name.is_empty() {
+            continue;
+        }
         let present_kwargs = extract_existing_kwargs(src, item_args);
         let kwargs_start = first_positional_end(item_args);
         facts.middlewares.push(MiddlewareCall {
@@ -479,7 +540,9 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 "#);
         assert_eq!(facts.middlewares.len(), 1);
-        assert!(matches!(&facts.middlewares[0].source, MwSource::Class(n) if n == "CORSMiddleware"));
+        assert!(
+            matches!(&facts.middlewares[0].source, MwSource::Class(n) if n == "CORSMiddleware")
+        );
     }
 
     #[test]
@@ -492,7 +555,9 @@ async def add_timing(request, call_next):
     return await call_next(request)
 "#);
         assert_eq!(facts.middlewares.len(), 1);
-        assert!(matches!(&facts.middlewares[0].source, MwSource::DecoratorFn(n) if n == "add_timing"));
+        assert!(
+            matches!(&facts.middlewares[0].source, MwSource::DecoratorFn(n) if n == "add_timing")
+        );
     }
 
     #[test]
@@ -523,7 +588,9 @@ class NotMiddleware:
 
     #[test]
     fn stock_table_has_cors() {
-        let cors = STOCK_MIDDLEWARE.iter().find(|(n, _)| *n == "CORSMiddleware");
+        let cors = STOCK_MIDDLEWARE
+            .iter()
+            .find(|(n, _)| *n == "CORSMiddleware");
         assert!(cors.is_some());
         let (_, kwargs) = cors.unwrap();
         assert!(kwargs.iter().any(|(name, _)| *name == "allow_origins"));
@@ -540,10 +607,18 @@ app = FastAPI(middleware=[
 ])
 "#);
         assert_eq!(facts.middlewares.len(), 2);
-        assert!(matches!(&facts.middlewares[0].source, MwSource::Class(n) if n == "CORSMiddleware"));
-        assert!(matches!(&facts.middlewares[1].source, MwSource::Class(n) if n == "GZipMiddleware"));
+        assert!(
+            matches!(&facts.middlewares[0].source, MwSource::Class(n) if n == "CORSMiddleware")
+        );
+        assert!(
+            matches!(&facts.middlewares[1].source, MwSource::Class(n) if n == "GZipMiddleware")
+        );
         assert_eq!(facts.middlewares[0].app_name, "app");
-        assert!(facts.middlewares[0].present_kwargs.contains(&"allow_origins".to_owned()));
+        assert!(
+            facts.middlewares[0]
+                .present_kwargs
+                .contains(&"allow_origins".to_owned())
+        );
     }
 
     #[test]

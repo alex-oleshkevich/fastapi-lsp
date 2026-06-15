@@ -44,15 +44,14 @@ pub fn completion(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Co
 
     // Template path completion (REQ-CPL-04): cursor inside a recognised template string.
     // TemplateRef.range uses tree-sitter's exclusive end_position(); position_in_range uses <.
-    if let Some(tpl) = facts.templates.iter().find(|t| {
-        position_in_range(pos, t.range.start, t.range.end)
-    }) {
+    if let Some(tpl) = facts
+        .templates
+        .iter()
+        .find(|t| position_in_range(pos, t.range.start, t.range.end))
+    {
         // inner_range: content between the quotes (quotes are always ASCII — +1/-1 is safe).
         let inner_range = Range {
-            start: Position::new(
-                tpl.range.start.line,
-                tpl.range.start.character + 1,
-            ),
+            start: Position::new(tpl.range.start.line, tpl.range.start.character + 1),
             end: Position::new(
                 tpl.range.end.line,
                 tpl.range.end.character.saturating_sub(1),
@@ -109,7 +108,10 @@ fn env_key_completions(state: &WorkspaceState, replace_range: Range) -> Option<C
 
 // ── url_for name completion ───────────────────────────────────────────────────
 
-fn url_for_name_completions(state: &WorkspaceState, replace_range: Range) -> Option<CompletionResponse> {
+fn url_for_name_completions(
+    state: &WorkspaceState,
+    replace_range: Range,
+) -> Option<CompletionResponse> {
     let linked = state.linked.load();
     if linked.route_names.is_empty() {
         return None;
@@ -119,7 +121,8 @@ fn url_for_name_completions(state: &WorkspaceState, replace_range: Range) -> Opt
         .route_names
         .iter()
         .filter_map(|(name, ids)| {
-            let record = ids.first()
+            let record = ids
+                .first()
                 .and_then(|id| linked.route_index.get(id))
                 .and_then(|v| v.first())?;
             let path = match &record.resolved_path {
@@ -145,7 +148,10 @@ fn url_for_name_completions(state: &WorkspaceState, replace_range: Range) -> Opt
         return None;
     }
 
-    Some(CompletionResponse::List(CompletionList { is_incomplete: false, items }))
+    Some(CompletionResponse::List(CompletionList {
+        is_incomplete: false,
+        items,
+    }))
 }
 
 // ── Client-call path completion (REQ-CPL-02) ─────────────────────────────────
@@ -200,7 +206,10 @@ fn client_path_completions(
         return None;
     }
 
-    Some(CompletionResponse::List(CompletionList { is_incomplete: false, items }))
+    Some(CompletionResponse::List(CompletionList {
+        is_incomplete: false,
+        items,
+    }))
 }
 
 /// Convert a route path to a snippet string.
@@ -279,15 +288,20 @@ fn template_path_completions(
             }
         } else {
             // Entry is a file directly at the current prefix level.
-            let full_path = linked.template_index.get(key).map(|u| uri_to_display_path(u.as_str()));
+            let full_path = linked
+                .template_index
+                .get(key)
+                .map(|u| uri_to_display_path(u.as_str()));
             items.push(CompletionItem {
                 label: key.clone(),
                 kind: Some(CompletionItemKind::FILE),
                 filter_text: Some(key.clone()),
-                documentation: full_path.map(|p| Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: p,
-                })),
+                documentation: full_path.map(|p| {
+                    Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: p,
+                    })
+                }),
                 text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                     range: replace_range,
                     new_text: key.clone(),
@@ -331,7 +345,10 @@ mod tests {
             resolved_path: ResolvedPath::Resolved(path.to_owned()),
             decorator_path: path.to_owned(),
             chain: vec![],
-            handler: StateLocation { uri, range: Range::default() },
+            handler: StateLocation {
+                uri,
+                range: Range::default(),
+            },
             path_params: vec![],
             response_model: None,
             response_model_range: None,
@@ -370,7 +387,10 @@ mod tests {
 
     #[test]
     fn path_to_snippet_path_converter_uses_name_only() {
-        assert_eq!(path_to_snippet("/files/{filepath:path}"), "/files/${1:filepath}");
+        assert_eq!(
+            path_to_snippet("/files/{filepath:path}"),
+            "/files/${1:filepath}"
+        );
     }
 
     #[test]
@@ -393,9 +413,9 @@ mod tests {
             path_range,
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
@@ -420,7 +440,10 @@ mod tests {
 
         // Param route should have SNIPPET format
         let param_item = items.iter().find(|i| i.label == "/items/{id}").unwrap();
-        assert_eq!(param_item.insert_text_format, Some(InsertTextFormat::SNIPPET));
+        assert_eq!(
+            param_item.insert_text_format,
+            Some(InsertTextFormat::SNIPPET)
+        );
         if let Some(CompletionTextEdit::Edit(edit)) = &param_item.text_edit {
             assert_eq!(edit.new_text, "/items/${1:id}");
             assert_eq!(edit.range, path_range);
@@ -430,7 +453,10 @@ mod tests {
 
         // Plain route should have PLAIN_TEXT format
         let plain_item = items.iter().find(|i| i.label == "/items").unwrap();
-        assert_eq!(plain_item.insert_text_format, Some(InsertTextFormat::PLAIN_TEXT));
+        assert_eq!(
+            plain_item.insert_text_format,
+            Some(InsertTextFormat::PLAIN_TEXT)
+        );
     }
 
     // ── Template path completion (REQ-CPL-04) ─────────────────────────────────
@@ -443,11 +469,14 @@ mod tests {
             end: Position::new(3, 52),
         };
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: prefix.to_owned(), range: tpl_range });
+        facts.templates.push(TemplateRef {
+            path: prefix.to_owned(),
+            range: tpl_range,
+        });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/project")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/project"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
         (state, uri)
     }
@@ -456,7 +485,9 @@ mod tests {
         use crate::state::Linked;
         let mut linked = Linked::default();
         for (k, v) in entries {
-            linked.template_index.insert(k.to_string(), v.parse().unwrap());
+            linked
+                .template_index
+                .insert(k.to_string(), v.parse().unwrap());
         }
         state.linked.store(Arc::new(linked));
     }
@@ -464,10 +495,13 @@ mod tests {
     #[test]
     fn flat_files_complete_with_file_kind() {
         let (state, uri) = make_template_state("");
-        store_index(&state, &[
-            ("index.html", "file:///project/tpl/index.html"),
-            ("about.html", "file:///project/tpl/about.html"),
-        ]);
+        store_index(
+            &state,
+            &[
+                ("index.html", "file:///project/tpl/index.html"),
+                ("about.html", "file:///project/tpl/about.html"),
+            ],
+        );
 
         let resp = completion(&state, &uri, Position::new(3, 41));
         let items = match resp.unwrap() {
@@ -482,19 +516,27 @@ mod tests {
     #[test]
     fn directory_items_have_folder_kind_and_incomplete_list() {
         let (state, uri) = make_template_state("");
-        store_index(&state, &[
-            ("admin/index.html", "file:///project/tpl/admin/index.html"),
-            ("admin/users.html", "file:///project/tpl/admin/users.html"),
-            ("index.html", "file:///project/tpl/index.html"),
-        ]);
+        store_index(
+            &state,
+            &[
+                ("admin/index.html", "file:///project/tpl/admin/index.html"),
+                ("admin/users.html", "file:///project/tpl/admin/users.html"),
+                ("index.html", "file:///project/tpl/index.html"),
+            ],
+        );
 
         let resp = completion(&state, &uri, Position::new(3, 41)).unwrap();
         let list = match resp {
             CompletionResponse::List(l) => l,
             _ => panic!("expected list"),
         };
-        assert!(list.is_incomplete, "must be incomplete when directories present");
-        let folder_items: Vec<_> = list.items.iter()
+        assert!(
+            list.is_incomplete,
+            "must be incomplete when directories present"
+        );
+        let folder_items: Vec<_> = list
+            .items
+            .iter()
             .filter(|i| i.kind == Some(CompletionItemKind::FOLDER))
             .collect();
         assert_eq!(folder_items.len(), 1, "admin/ deduped to one entry");
@@ -511,16 +553,22 @@ mod tests {
         };
         let mut facts = FileFacts::new(uri.clone());
         // User has typed "admin/" so TemplateRef.path = "admin/"
-        facts.templates.push(TemplateRef { path: "admin/".to_owned(), range: tpl_range });
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/project")),
-        );
+        facts.templates.push(TemplateRef {
+            path: "admin/".to_owned(),
+            range: tpl_range,
+        });
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/project"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
-        store_index(&state, &[
-            ("admin/index.html", "file:///project/tpl/admin/index.html"),
-            ("admin/users.html", "file:///project/tpl/admin/users.html"),
-            ("index.html", "file:///project/tpl/index.html"), // does NOT start with "admin/"
-        ]);
+        store_index(
+            &state,
+            &[
+                ("admin/index.html", "file:///project/tpl/admin/index.html"),
+                ("admin/users.html", "file:///project/tpl/admin/users.html"),
+                ("index.html", "file:///project/tpl/index.html"), // does NOT start with "admin/"
+            ],
+        );
 
         let resp = completion(&state, &uri, Position::new(3, 46)).unwrap();
         let list = match resp {
@@ -562,7 +610,10 @@ mod tests {
         store_index(&state, &[("index.html", "file:///project/tpl/index.html")]);
 
         let resp = completion(&state, &uri, Position::new(3, 52));
-        assert!(resp.is_none(), "col 52 is past the closing quote — must not trigger completion");
+        assert!(
+            resp.is_none(),
+            "col 52 is past the closing quote — must not trigger completion"
+        );
     }
 
     #[test]
@@ -575,10 +626,13 @@ mod tests {
             end: Position::new(3, 52),
         };
         let mut facts = FileFacts::new(uri.clone());
-        facts.templates.push(TemplateRef { path: "".to_owned(), range: tpl_range });
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/project")),
-        );
+        facts.templates.push(TemplateRef {
+            path: "".to_owned(),
+            range: tpl_range,
+        });
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/project"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
         store_index(&state, &[("index.html", "file:///project/tpl/index.html")]);
 
@@ -612,9 +666,9 @@ mod tests {
             name_range: Some(name_range),
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/project")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/project"),
+        ));
         state.file_facts.insert(uri.clone(), facts);
 
         let mut linked = Linked::default();
@@ -622,8 +676,12 @@ mod tests {
         let (id2, r2) = make_route("create_item", "/items", Method::Post, "file:///app.py");
         linked.route_index.insert(id1.clone(), vec![r1]);
         linked.route_index.insert(id2.clone(), vec![r2]);
-        linked.route_names.insert("list_items".to_owned(), vec![id1]);
-        linked.route_names.insert("create_item".to_owned(), vec![id2]);
+        linked
+            .route_names
+            .insert("list_items".to_owned(), vec![id1]);
+        linked
+            .route_names
+            .insert("create_item".to_owned(), vec![id2]);
         state.linked.store(Arc::new(linked));
 
         let resp = completion(&state, &uri, Position::new(0, 20)).unwrap();
@@ -633,8 +691,14 @@ mod tests {
         };
 
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"list_items"), "GET route name should appear");
-        assert!(labels.contains(&"create_item"), "POST route name should appear");
+        assert!(
+            labels.contains(&"list_items"),
+            "GET route name should appear"
+        );
+        assert!(
+            labels.contains(&"create_item"),
+            "POST route name should appear"
+        );
 
         let item = items.iter().find(|i| i.label == "list_items").unwrap();
         if let Some(CompletionTextEdit::Edit(edit)) = &item.text_edit {

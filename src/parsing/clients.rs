@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
-use tower_lsp_server::ls_types::{Position, Range};
-use crate::state::{ClientCall, FileFacts, Method, range_from_node};
 use super::unquote;
+use crate::state::{ClientCall, FileFacts, Method, range_from_node};
+use tower_lsp_server::ls_types::{Position, Range};
 
 pub fn extract(
     src: &[u8],
@@ -88,8 +88,14 @@ fn is_client_type_node(src: &[u8], node: Node<'_>) -> bool {
             matches!(name, "TestClient" | "AsyncClient") || name.ends_with("TestClient")
         }
         "attribute" => {
-            let obj = node.child_by_field_name("object").map(|n| node_text(src, n)).unwrap_or("");
-            let attr = node.child_by_field_name("attribute").map(|n| node_text(src, n)).unwrap_or("");
+            let obj = node
+                .child_by_field_name("object")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
+            let attr = node
+                .child_by_field_name("attribute")
+                .map(|n| node_text(src, n))
+                .unwrap_or("");
             obj == "httpx" && matches!(attr, "Client" | "AsyncClient")
         }
         _ => false,
@@ -131,9 +137,10 @@ fn collect_http_calls(
     enc: crate::offset::Encoding,
 ) {
     if node.kind() == "call"
-        && let Some(call) = extract_http_call(src, node, client_names, enc) {
-            facts.client_calls.push(call);
-        }
+        && let Some(call) = extract_http_call(src, node, client_names, enc)
+    {
+        facts.client_calls.push(call);
+    }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_http_calls(src, child, client_names, facts, enc);
@@ -210,7 +217,11 @@ fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
 /// Returns `(path, range, is_prefix, path_depth)`.
 /// `path_depth` is the total segment count when `is_prefix` is true and we can infer it from
 /// all static parts of the template (f-string, .format, %).  `None` for exact paths or `+`.
-fn first_arg_path(src: &[u8], args: Node<'_>, enc: crate::offset::Encoding) -> Option<(String, Range, bool, Option<usize>)> {
+fn first_arg_path(
+    src: &[u8],
+    args: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<(String, Range, bool, Option<usize>)> {
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
         match child.kind() {
@@ -225,7 +236,11 @@ fn first_arg_path(src: &[u8], args: Node<'_>, enc: crate::offset::Encoding) -> O
     None
 }
 
-fn extract_path_from_string(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<(String, Range, bool, Option<usize>)> {
+fn extract_path_from_string(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<(String, Range, bool, Option<usize>)> {
     // Detect f-string by presence of an `interpolation` child node.
     let has_interpolation = {
         let mut c = node.walk();
@@ -286,23 +301,35 @@ fn fstring_prefix_range(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding
     for child in node.children(&mut cursor) {
         if child.kind() == "string_content" {
             let end = range_from_node(child, src, enc).end;
-            return Range { start: string_start, end };
+            return Range {
+                start: string_start,
+                end,
+            };
         }
         if child.kind() == "interpolation" {
             break;
         }
     }
     // Fallback: zero-width range so goto does not fire on any interpolation content.
-    Range { start: string_start, end: string_start }
+    Range {
+        start: string_start,
+        end: string_start,
+    }
 }
 
 /// `"/path/{}".format(x)` → extract prefix before `{}` from the string object.
-fn extract_path_from_format_call(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<(String, Range, bool, Option<usize>)> {
+fn extract_path_from_format_call(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<(String, Range, bool, Option<usize>)> {
     let func = node.child_by_field_name("function")?;
     if func.kind() != "attribute" {
         return None;
     }
-    let attr_name = func.child_by_field_name("attribute").map(|n| node_text(src, n))?;
+    let attr_name = func
+        .child_by_field_name("attribute")
+        .map(|n| node_text(src, n))?;
     if attr_name != "format" {
         return None;
     }
@@ -326,7 +353,11 @@ fn extract_path_from_format_call(src: &[u8], node: Node<'_>, enc: crate::offset:
 }
 
 /// `"/path/%s" % x` → extract prefix before the % placeholder from the left string.
-fn extract_path_from_binary_op(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<(String, Range, bool, Option<usize>)> {
+fn extract_path_from_binary_op(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<(String, Range, bool, Option<usize>)> {
     let op = {
         let mut c = node.walk();
         node.children(&mut c).find(|n| !n.is_named())
@@ -359,7 +390,11 @@ fn extract_path_from_binary_op(src: &[u8], node: Node<'_>, enc: crate::offset::E
 
 /// For `"a" + "b" + …`: collect all literal pieces. If all are strings, return exact match.
 /// If the chain ends with a non-string, return the prefix so far as `is_prefix=true`.
-fn concat_string_operands(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<(String, Range, bool, Option<usize>)> {
+fn concat_string_operands(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<(String, Range, bool, Option<usize>)> {
     let range = range_from_node(node, src, enc);
     let mut buf = String::new();
     let mut all_literal = true;
@@ -412,7 +447,13 @@ fn take_before_percent_placeholder(s: &str) -> String {
     // Find %[flags][width][.prec]type  —  simplest: look for % followed by non-% char
     let bytes = s.as_bytes();
     for (i, &b) in bytes.iter().enumerate() {
-        if b == b'%' && bytes.get(i + 1).copied().map(|c| c != b'%').unwrap_or(false) {
+        if b == b'%'
+            && bytes
+                .get(i + 1)
+                .copied()
+                .map(|c| c != b'%')
+                .unwrap_or(false)
+        {
             return s[..i].to_owned();
         }
     }
@@ -420,7 +461,12 @@ fn take_before_percent_placeholder(s: &str) -> String {
 }
 
 /// Compute the range of the string content (excluding quotes and prefix chars).
-fn string_content_range(node: Node<'_>, raw: &str, src: &[u8], enc: crate::offset::Encoding) -> Range {
+fn string_content_range(
+    node: Node<'_>,
+    raw: &str,
+    src: &[u8],
+    enc: crate::offset::Encoding,
+) -> Range {
     let base = range_from_node(node, src, enc);
     let no_prefix = raw.trim_start_matches(['r', 'b', 'R', 'B']);
     let prefix_extra = (raw.len() - no_prefix.len()) as u32;
@@ -431,12 +477,13 @@ fn string_content_range(node: Node<'_>, raw: &str, src: &[u8], enc: crate::offse
             (1, 1)
         };
     Range {
-        start: Position::new(base.start.line, base.start.character + prefix_extra + open_len),
+        start: Position::new(
+            base.start.line,
+            base.start.character + prefix_extra + open_len,
+        ),
         end: Position::new(base.end.line, base.end.character - close_len),
     }
 }
-
-
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -455,7 +502,14 @@ mod tests {
         let uri: Uri = "file:///test_api.py".parse().unwrap();
         let mut facts = FileFacts::new(uri);
         let fixture_strs: Vec<String> = fixtures.iter().map(|s| s.to_string()).collect();
-        extract(bytes, &tree, &mut facts, true, &fixture_strs, crate::offset::Encoding::Utf8);
+        extract(
+            bytes,
+            &tree,
+            &mut facts,
+            true,
+            &fixture_strs,
+            crate::offset::Encoding::Utf8,
+        );
         facts
     }
 
@@ -465,7 +519,14 @@ mod tests {
         let uri: Uri = "file:///api.py".parse().unwrap();
         let mut facts = FileFacts::new(uri);
         let fixture_strs: Vec<String> = fixtures.iter().map(|s| s.to_string()).collect();
-        extract(bytes, &tree, &mut facts, false, &fixture_strs, crate::offset::Encoding::Utf8);
+        extract(
+            bytes,
+            &tree,
+            &mut facts,
+            false,
+            &fixture_strs,
+            crate::offset::Encoding::Utf8,
+        );
         facts
     }
 
@@ -541,16 +602,27 @@ client.websocket_connect('/ws')
     fn fstring_extracts_static_prefix() {
         let src = "client.post(f'/v1/contracts/private/{contract_id}/upload-signed')";
         let facts = extract_test(src, &["client"]);
-        assert_eq!(facts.client_calls.len(), 1, "f-string must produce a client call with static prefix");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "f-string must produce a client call with static prefix"
+        );
         assert_eq!(facts.client_calls[0].path, "/v1/contracts/private/");
-        assert!(facts.client_calls[0].is_prefix, "f-string with interpolation must be prefix-only");
+        assert!(
+            facts.client_calls[0].is_prefix,
+            "f-string with interpolation must be prefix-only"
+        );
     }
 
     #[test]
     fn fstring_no_interpolation_is_exact() {
         let src = "client.get(f'/ws')";
         let facts = extract_test(src, &["client"]);
-        assert_eq!(facts.client_calls.len(), 1, "f-string with no interpolation is an exact path");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "f-string with no interpolation is an exact path"
+        );
         assert_eq!(facts.client_calls[0].path, "/ws");
         assert!(!facts.client_calls[0].is_prefix);
     }
@@ -559,7 +631,11 @@ client.websocket_connect('/ws')
     fn rf_fstring_extracts_static_prefix() {
         let src = "client.get(rf'/users/{user_id}')";
         let facts = extract_test(src, &["client"]);
-        assert_eq!(facts.client_calls.len(), 1, "rf-string with interpolation must extract prefix");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "rf-string with interpolation must extract prefix"
+        );
         assert_eq!(facts.client_calls[0].path, "/users/");
         assert!(facts.client_calls[0].is_prefix);
     }
@@ -568,7 +644,11 @@ client.websocket_connect('/ws')
     fn format_call_extracts_prefix() {
         let src = r#"client.post("/v1/items/{}".format(item_id))"#;
         let facts = extract_test(src, &["client"]);
-        assert_eq!(facts.client_calls.len(), 1, ".format() string must produce prefix call");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            ".format() string must produce prefix call"
+        );
         assert_eq!(facts.client_calls[0].path, "/v1/items/");
         assert!(facts.client_calls[0].is_prefix);
     }
@@ -577,7 +657,11 @@ client.websocket_connect('/ws')
     fn percent_format_extracts_prefix() {
         let src = r#"client.get("/v1/items/%s" % item_id)"#;
         let facts = extract_test(src, &["client"]);
-        assert_eq!(facts.client_calls.len(), 1, "%-format string must produce prefix call");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "%-format string must produce prefix call"
+        );
         assert_eq!(facts.client_calls[0].path, "/v1/items/");
         assert!(facts.client_calls[0].is_prefix);
     }
@@ -586,7 +670,11 @@ client.websocket_connect('/ws')
     fn plus_concat_all_strings_is_exact() {
         let src = r#"client.get("/v1/" + "items")"#;
         let facts = extract_test(src, &["client"]);
-        assert_eq!(facts.client_calls.len(), 1, "concat of two literals is exact");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "concat of two literals is exact"
+        );
         assert_eq!(facts.client_calls[0].path, "/v1/items");
         assert!(!facts.client_calls[0].is_prefix);
     }
@@ -595,7 +683,11 @@ client.websocket_connect('/ws')
     fn plus_concat_with_variable_is_prefix() {
         let src = r#"client.get("/v1/items/" + item_id)"#;
         let facts = extract_test(src, &["client"]);
-        assert_eq!(facts.client_calls.len(), 1, "concat with variable must produce prefix call");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "concat with variable must produce prefix call"
+        );
         assert_eq!(facts.client_calls[0].path, "/v1/items/");
         assert!(facts.client_calls[0].is_prefix);
     }
@@ -683,7 +775,11 @@ other.post('/b')
     fn client_detected_via_httpx_attribute_annotation() {
         let src = "async def test_create(internal_client: httpx.AsyncClient):\n    resp = await internal_client.post('/v1/items')";
         let facts = extract_test(src, &[]);
-        assert_eq!(facts.client_calls.len(), 1, "typed parameter with httpx.AsyncClient must be detected");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "typed parameter with httpx.AsyncClient must be detected"
+        );
         assert_eq!(facts.client_calls[0].fixture_name, "internal_client");
         assert_eq!(facts.client_calls[0].method, Method::Post);
         assert_eq!(facts.client_calls[0].path, "/v1/items");
@@ -693,7 +789,11 @@ other.post('/b')
     fn client_detected_via_bare_async_client_annotation() {
         let src = "async def test_it(ac: AsyncClient):\n    ac.get('/health')";
         let facts = extract_test(src, &[]);
-        assert_eq!(facts.client_calls.len(), 1, "typed parameter with bare AsyncClient must be detected");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "typed parameter with bare AsyncClient must be detected"
+        );
         assert_eq!(facts.client_calls[0].fixture_name, "ac");
         assert_eq!(facts.client_calls[0].method, Method::Get);
     }
@@ -703,7 +803,10 @@ other.post('/b')
         // "%s" % x has no static prefix — should not produce a call (would match all routes)
         let src = r#"client.get("%s" % item_id)"#;
         let facts = extract_test(src, &["client"]);
-        assert!(facts.client_calls.is_empty(), "%-format with no static prefix must be skipped");
+        assert!(
+            facts.client_calls.is_empty(),
+            "%-format with no static prefix must be skipped"
+        );
     }
 
     #[test]
@@ -711,7 +814,10 @@ other.post('/b')
         // "{}".format(x) has no static prefix — should not produce a call (would match all routes)
         let src = r#"client.get("{}".format(item_id))"#;
         let facts = extract_test(src, &["client"]);
-        assert!(facts.client_calls.is_empty(), ".format() with no static prefix must be skipped");
+        assert!(
+            facts.client_calls.is_empty(),
+            ".format() with no static prefix must be skipped"
+        );
     }
 
     #[test]
@@ -720,7 +826,11 @@ other.post('/b')
         // Names ending in "Client" must be treated as test-client types.
         let src = "async def test_it(ac: AsyncTestClient):\n    resp = await ac.get('/health')\n";
         let facts = extract_test(src, &[]);
-        assert_eq!(facts.client_calls.len(), 1, "AsyncTestClient annotation must detect client");
+        assert_eq!(
+            facts.client_calls.len(),
+            1,
+            "AsyncTestClient annotation must detect client"
+        );
         assert_eq!(facts.client_calls[0].path, "/health");
         assert_eq!(facts.client_calls[0].fixture_name, "ac");
     }

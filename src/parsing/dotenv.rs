@@ -30,7 +30,10 @@ pub fn parse(src: &str, _uri: &Uri) -> Vec<DotenvEntry> {
         }
 
         // Strip optional `export ` prefix
-        let rest = trimmed.strip_prefix("export ").map(str::trim_start).unwrap_or(trimmed);
+        let rest = trimmed
+            .strip_prefix("export ")
+            .map(str::trim_start)
+            .unwrap_or(trimmed);
 
         let eq_pos = match rest.find('=') {
             Some(p) => p,
@@ -45,7 +48,11 @@ pub fn parse(src: &str, _uri: &Uri) -> Vec<DotenvEntry> {
         let raw_value = rest[eq_pos + 1..].trim();
         let value = strip_quotes_and_comment(raw_value);
 
-        entries.push(DotenvEntry { key, value, line: line_num });
+        entries.push(DotenvEntry {
+            key,
+            value,
+            line: line_num,
+        });
     }
     entries
 }
@@ -57,8 +64,14 @@ pub fn into_env_entries(entries: &[DotenvEntry], uri: &Uri) -> Vec<(String, EnvE
             let loc = Location {
                 uri: uri.clone(),
                 range: Range {
-                    start: Position { line: e.line, character: 0 },
-                    end: Position { line: e.line, character: e.key.len() as u32 },
+                    start: Position {
+                        line: e.line,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: e.line,
+                        character: e.key.len() as u32,
+                    },
                 },
             };
             (
@@ -74,7 +87,8 @@ pub fn into_env_entries(entries: &[DotenvEntry], uri: &Uri) -> Vec<(String, EnvE
 }
 
 fn is_valid_key(key: &str) -> bool {
-    key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
+    key.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
 }
 
 fn strip_quotes_and_comment(s: &str) -> String {
@@ -105,7 +119,11 @@ fn strip_quotes_and_comment(s: &str) -> String {
         return out;
     }
     if let Some(rest) = s.strip_prefix('\'') {
-        return rest.split_once('\'').map(|(v, _)| v).unwrap_or(rest).to_owned();
+        return rest
+            .split_once('\'')
+            .map(|(v, _)| v)
+            .unwrap_or(rest)
+            .to_owned();
     }
 
     // Unquoted: strip inline comment (first unescaped `#` preceded by whitespace)
@@ -147,10 +165,13 @@ mod tests {
     #[test]
     fn simple_key_value() {
         let entries = kv("APP_NAME=bookshop\nDEBUG=true");
-        assert_eq!(entries, vec![
-            ("APP_NAME".to_owned(), "bookshop".to_owned()),
-            ("DEBUG".to_owned(), "true".to_owned()),
-        ]);
+        assert_eq!(
+            entries,
+            vec![
+                ("APP_NAME".to_owned(), "bookshop".to_owned()),
+                ("DEBUG".to_owned(), "true".to_owned()),
+            ]
+        );
     }
 
     #[test]

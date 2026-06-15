@@ -15,7 +15,12 @@ pub async fn relink(state: &Arc<WorkspaceState>) {
         let cfg = state.config.read().await;
         (cfg.template_roots.clone(), cfg.settings_env_files.clone())
     };
-    let new_linked = build(state, generation_before, &template_roots, &settings_env_files);
+    let new_linked = build(
+        state,
+        generation_before,
+        &template_roots,
+        &settings_env_files,
+    );
 
     if state.current_generation() != generation_before {
         tracing::debug!("generation moved during link, discarding stale snapshot");
@@ -26,7 +31,12 @@ pub async fn relink(state: &Arc<WorkspaceState>) {
     tracing::debug!("linked generation {generation_before}");
 }
 
-fn build(state: &WorkspaceState, generation: u64, template_roots: &[std::path::PathBuf], settings_env_files: &[String]) -> Linked {
+fn build(
+    state: &WorkspaceState,
+    generation: u64,
+    template_roots: &[std::path::PathBuf],
+    settings_env_files: &[String],
+) -> Linked {
     // Collect all facts into indexed lookups
     let ctx = LinkContext::from_state(state);
 
@@ -52,17 +62,16 @@ fn build(state: &WorkspaceState, generation: u64, template_roots: &[std::path::P
                 // prevent N identical records when many aliased routers share
                 // the same object name (e.g. `from X import router as X_router`).
                 let resolved_paths = {
-                    let mut paths = ctx.resolve_route_paths(
-                        &facts.uri,
-                        &route.object_name,
-                        &route.path,
-                    );
+                    let mut paths =
+                        ctx.resolve_route_paths(&facts.uri, &route.object_name, &route.path);
                     let mut seen = std::collections::HashSet::new();
                     paths.retain(|p| seen.insert(p.clone()));
                     paths
                 };
 
-                let route_name = route.route_name.clone()
+                let route_name = route
+                    .route_name
+                    .clone()
                     .unwrap_or_else(|| route.handler_name.clone());
                 let decorator_path = match &route.path {
                     PrefixValue::Literal(p) => p.clone(),
@@ -76,7 +85,10 @@ fn build(state: &WorkspaceState, generation: u64, template_roots: &[std::path::P
                 // "StaticFiles", triggering false url/unknown-name suppressions.
                 let add_to_route_names = *method != Method::Mount || route.route_name.is_some();
                 if add_to_route_names {
-                    route_names.entry(route_name.clone()).or_default().push(id.clone());
+                    route_names
+                        .entry(route_name.clone())
+                        .or_default()
+                        .push(id.clone());
                 }
 
                 let middleware = ctx.middleware_chain(&route.object_name);
@@ -188,7 +200,12 @@ fn build_env_file_keys(
     keys
 }
 
-fn build_dep_caches(state: &WorkspaceState) -> (std::collections::HashSet<String>, HashMap<String, Vec<String>>) {
+fn build_dep_caches(
+    state: &WorkspaceState,
+) -> (
+    std::collections::HashSet<String>,
+    HashMap<String, Vec<String>>,
+) {
     let mut proven = std::collections::HashSet::new();
     let mut dep_params: HashMap<String, Vec<String>> = HashMap::new();
     for entry in state.file_facts.iter() {
@@ -197,7 +214,9 @@ fn build_dep_caches(state: &WorkspaceState) -> (std::collections::HashSet<String
             if def.has_yield {
                 proven.insert(def.name.clone());
             }
-            dep_params.entry(def.name.clone()).or_insert_with(|| def.param_names.clone());
+            dep_params
+                .entry(def.name.clone())
+                .or_insert_with(|| def.param_names.clone());
         }
         for dep_ref in &facts.dep_refs {
             if !dep_ref.is_called && !dep_ref.name.is_empty() {
@@ -220,14 +239,17 @@ fn build_model_index(state: &WorkspaceState) -> HashMap<String, Vec<crate::state
     for entry in state.file_facts.iter() {
         let facts = entry.value();
         for model in &facts.models {
-            index.entry(model.name.clone()).or_default().push(crate::state::ModelRecord {
-                name: model.name.clone(),
-                location: crate::state::Location {
-                    uri: facts.uri.clone(),
-                    range: model.range,
-                },
-                is_settings: model.is_settings,
-            });
+            index
+                .entry(model.name.clone())
+                .or_default()
+                .push(crate::state::ModelRecord {
+                    name: model.name.clone(),
+                    location: crate::state::Location {
+                        uri: facts.uri.clone(),
+                        range: model.range,
+                    },
+                    is_settings: model.is_settings,
+                });
         }
     }
     index
@@ -247,16 +269,20 @@ fn build_template_index(template_roots: &[std::path::PathBuf]) -> HashMap<String
             .into_iter()
             .filter_map(|e| match e {
                 Ok(e) => Some(e),
-                Err(err) => { tracing::warn!("template root scan error: {err}"); None }
+                Err(err) => {
+                    tracing::warn!("template root scan error: {err}");
+                    None
+                }
             })
             .filter(|e| e.file_type().is_file())
         {
             if let Ok(rel) = entry.path().strip_prefix(root) {
                 let rel_str = rel.to_string_lossy().replace('\\', "/");
                 if !index.contains_key(&rel_str)
-                    && let Some(uri) = crate::uri::path_to_uri(entry.path()) {
-                        index.insert(rel_str, uri);
-                    }
+                    && let Some(uri) = crate::uri::path_to_uri(entry.path())
+                {
+                    index.insert(rel_str, uri);
+                }
             }
         }
     }
@@ -291,22 +317,29 @@ impl LinkContext {
             }
 
             for router in &facts.routers {
-                routers.entry(router.name.clone()).or_default().push((router.clone(), uri.clone()));
+                routers
+                    .entry(router.name.clone())
+                    .or_default()
+                    .push((router.clone(), uri.clone()));
             }
 
             for inc in &facts.includes {
                 // Index by the full target text and by the last component (suffix match)
                 let key = inc.target.clone();
-                includes_by_target.entry(key).or_default().push((inc.clone(), uri.clone()));
+                includes_by_target
+                    .entry(key)
+                    .or_default()
+                    .push((inc.clone(), uri.clone()));
 
                 // If target is dotted (books.router), also index by the last segment
                 if let Some(suffix) = inc.target.rsplit('.').next()
-                    && suffix != inc.target {
-                        includes_by_target
-                            .entry(suffix.to_owned())
-                            .or_default()
-                            .push((inc.clone(), uri.clone()));
-                    }
+                    && suffix != inc.target
+                {
+                    includes_by_target
+                        .entry(suffix.to_owned())
+                        .or_default()
+                        .push((inc.clone(), uri.clone()));
+                }
 
                 // If the include target is an import alias (e.g. `router as projects_router`),
                 // also index under the original name so routes that use the original name resolve.
@@ -335,7 +368,12 @@ impl LinkContext {
             }
         }
 
-        Self { routers, apps, includes_by_target, middlewares_by_obj }
+        Self {
+            routers,
+            apps,
+            includes_by_target,
+            middlewares_by_obj,
+        }
     }
 
     /// Compute the middleware chain for a route registered on `object_name`.
@@ -476,7 +514,11 @@ impl LinkContext {
             results.extend(self.resolve_paths_from(&inc.app_name, inc_uri, branch, depth + 1));
         }
 
-        if results.is_empty() { vec![ResolvedPath::Unresolved] } else { results }
+        if results.is_empty() {
+            vec![ResolvedPath::Unresolved]
+        } else {
+            results
+        }
     }
 }
 
@@ -541,17 +583,24 @@ fn build_env_index(state: &WorkspaceState) -> HashMap<String, EnvEntry> {
         let mut visited = std::collections::HashSet::new();
         for (uri_str, field) in collect_settings_fields(class_name, &class_map, &mut visited) {
             let Some(key) = &field.env_key else { continue };
-            let Ok(field_uri) = uri_str.parse::<Uri>() else { continue };
+            let Ok(field_uri) = uri_str.parse::<Uri>() else {
+                continue;
+            };
             let new_entry = EnvEntry {
                 value: String::new(),
-                locations: vec![Location { uri: field_uri, range: field.range }],
+                locations: vec![Location {
+                    uri: field_uri,
+                    range: field.range,
+                }],
                 from_process_env: false,
             };
             index
                 .entry(key.clone())
                 .and_modify(|e| {
-                    if !e.locations.iter().any(|l| l.range == new_entry.locations[0].range
-                        && l.uri == new_entry.locations[0].uri) {
+                    if !e.locations.iter().any(|l| {
+                        l.range == new_entry.locations[0].range
+                            && l.uri == new_entry.locations[0].uri
+                    }) {
                         e.locations.extend(new_entry.locations.clone());
                     }
                 })
@@ -594,30 +643,40 @@ fn build_middleware_classes(state: &WorkspaceState) -> HashMap<String, Vec<MwIni
     for entry in state.file_facts.iter() {
         let facts = entry.value();
         for cls in &facts.mw_classes {
-            index.entry(cls.class_name.clone()).or_default().push(MwInit {
-                location: Location {
-                    uri: facts.uri.clone(),
-                    range: cls.range,
-                },
-                kwargs: cls.kwargs.clone(),
-            });
+            index
+                .entry(cls.class_name.clone())
+                .or_default()
+                .push(MwInit {
+                    location: Location {
+                        uri: facts.uri.clone(),
+                        range: cls.range,
+                    },
+                    kwargs: cls.kwargs.clone(),
+                });
         }
     }
 
     for (class_name, kwargs) in crate::parsing::middleware::STOCK_MIDDLEWARE {
         if !index.contains_key(*class_name)
-            && let Ok(sentinel_uri) = "file:///builtins/starlette".parse::<Uri>() {
-                index.entry(class_name.to_string()).or_default().push(MwInit {
+            && let Ok(sentinel_uri) = "file:///builtins/starlette".parse::<Uri>()
+        {
+            index
+                .entry(class_name.to_string())
+                .or_default()
+                .push(MwInit {
                     location: Location {
                         uri: sentinel_uri,
                         range: Default::default(),
                     },
-                    kwargs: kwargs.iter().map(|(name, detail)| MwKwarg {
-                        name: name.to_string(),
-                        detail: Some(detail.to_string()),
-                    }).collect(),
+                    kwargs: kwargs
+                        .iter()
+                        .map(|(name, detail)| MwKwarg {
+                            name: name.to_string(),
+                            detail: Some(detail.to_string()),
+                        })
+                        .collect(),
                 });
-            }
+        }
     }
 
     index
@@ -637,7 +696,10 @@ fn build_dep_graph(state: &WorkspaceState) -> DepGraph {
     for entry in state.file_facts.iter() {
         let facts = entry.value();
         for def in &facts.dep_defs {
-            def_index.entry(def.name.clone()).or_default().push(def.node_id.clone());
+            def_index
+                .entry(def.name.clone())
+                .or_default()
+                .push(def.node_id.clone());
         }
     }
 
@@ -662,7 +724,9 @@ fn build_dep_graph(state: &WorkspaceState) -> DepGraph {
                 Some(id)
             } else {
                 match &dep_ref.containing_func {
-                    Some(fname) => facts.dep_defs.iter()
+                    Some(fname) => facts
+                        .dep_defs
+                        .iter()
                         .find(|d| d.name == *fname)
                         .map(|d| d.node_id.clone()),
                     None => None,
@@ -674,7 +738,9 @@ fn build_dep_graph(state: &WorkspaceState) -> DepGraph {
                 None => continue, // module-scope Depends or caller not found
             };
 
-            uses.entry(caller_id.clone()).or_default().push(callee_id.clone());
+            uses.entry(caller_id.clone())
+                .or_default()
+                .push(callee_id.clone());
             used_by.entry(callee_id).or_default().push(caller_id);
         }
     }
@@ -704,7 +770,11 @@ fn build_dep_graph(state: &WorkspaceState) -> DepGraph {
         }
     }
 
-    DepGraph { uses, used_by, override_sites }
+    DepGraph {
+        uses,
+        used_by,
+        override_sites,
+    }
 }
 
 // ── Cycle detection (Tarjan's SCC) ───────────────────────────────────────────
@@ -725,19 +795,25 @@ pub fn build_cycle_map(dep_graph: &DepGraph) -> HashMap<NodeId, Vec<NodeId>> {
 fn tarjan_sccs(uses: &HashMap<NodeId, Vec<NodeId>>) -> Vec<Vec<NodeId>> {
     let mut state = TarjanState::default();
     // Visit all nodes that appear as sources or targets
-    let all_nodes: std::collections::HashSet<&NodeId> = uses.keys()
-        .chain(uses.values().flatten())
-        .collect();
+    let all_nodes: std::collections::HashSet<&NodeId> =
+        uses.keys().chain(uses.values().flatten()).collect();
     for node in all_nodes {
         if !state.indices.contains_key(node) {
             tarjan_visit(node, uses, &mut state);
         }
     }
     // Keep only cycles: SCCs of size > 1 or self-loops
-    state.sccs.into_iter().filter(|scc| {
-        scc.len() > 1
-            || uses.get(&scc[0]).map(|ns| ns.contains(&scc[0])).unwrap_or(false)
-    }).collect()
+    state
+        .sccs
+        .into_iter()
+        .filter(|scc| {
+            scc.len() > 1
+                || uses
+                    .get(&scc[0])
+                    .map(|ns| ns.contains(&scc[0]))
+                    .unwrap_or(false)
+        })
+        .collect()
 }
 
 #[derive(Default)]
@@ -879,9 +955,9 @@ fn trie_insert(node: &mut TrieNode, segments: &[&str], id: RouteId) {
             // {name:path} is a multi-segment wildcard; Starlette requires it to be
             // the last segment in a pattern, so rest is normally empty.
             let name = inner.strip_suffix(":path").unwrap_or(inner).to_owned();
-            let (_, child) = node.path_param.get_or_insert_with(|| {
-                (name, Box::new(TrieNode::default()))
-            });
+            let (_, child) = node
+                .path_param
+                .get_or_insert_with(|| (name, Box::new(TrieNode::default())));
             trie_insert(child, rest, id);
         } else {
             // All single-segment wildcards ({id}, {id:int}, {id:uuid}, etc.) share
@@ -889,9 +965,9 @@ fn trie_insert(node: &mut TrieNode, segments: &[&str], id: RouteId) {
             // subsequent routes at the same level reuse the same child node (correct
             // for matching since param names are irrelevant for path matching).
             let name = inner.split(':').next().unwrap_or(inner).to_owned();
-            let (_, child) = node.param.get_or_insert_with(|| {
-                (name, Box::new(TrieNode::default()))
-            });
+            let (_, child) = node
+                .param
+                .get_or_insert_with(|| (name, Box::new(TrieNode::default())));
             trie_insert(child, rest, id);
         }
     } else {
@@ -1068,28 +1144,36 @@ mod tests {
 
     #[test]
     fn join_path_no_double_slash() {
-        assert_eq!(join_path_segments(&["/api".into(), "/books".into(), "/{id}".into()]),
-            "/api/books/{id}");
+        assert_eq!(
+            join_path_segments(&["/api".into(), "/books".into(), "/{id}".into()]),
+            "/api/books/{id}"
+        );
     }
 
     #[test]
     fn join_path_empty_segments_skipped() {
-        assert_eq!(join_path_segments(&["".into(), "/books".into(), "/".into()]),
-            "/books/");
+        assert_eq!(
+            join_path_segments(&["".into(), "/books".into(), "/".into()]),
+            "/books/"
+        );
     }
 
     #[test]
     fn join_path_trailing_slash_preserved() {
         // Trailing slash is significant (REQ-ROUTE-04)
-        assert_eq!(join_path_segments(&["/api".into(), "/books".into(), "/".into()]),
-            "/api/books/");
+        assert_eq!(
+            join_path_segments(&["/api".into(), "/books".into(), "/".into()]),
+            "/api/books/"
+        );
     }
 
     #[test]
     fn join_path_collapse_double_slash() {
         // "/api/" + "/books" → "/api/books"
-        assert_eq!(join_path_segments(&["/api/".into(), "/books".into()]),
-            "/api/books");
+        assert_eq!(
+            join_path_segments(&["/api/".into(), "/books".into()]),
+            "/api/books"
+        );
     }
 
     fn make_uri(s: &str) -> Uri {
@@ -1097,7 +1181,7 @@ mod tests {
     }
 
     fn make_ctx(
-        routers: &[(&str, &str)],       // (name, prefix)
+        routers: &[(&str, &str)], // (name, prefix)
         apps: &[&str],
         includes: &[(&str, &str, &str)], // (target, prefix, app_name)
     ) -> LinkContext {
@@ -1161,10 +1245,7 @@ mod tests {
         let ctx = make_ctx(
             &[("router", "/books")],
             &["app"],
-            &[
-                ("router", "/v1", "app"),
-                ("router", "/v2", "app"),
-            ],
+            &[("router", "/v1", "app"), ("router", "/v2", "app")],
         );
         let paths = ctx.resolve_route_paths(
             &make_uri("file:///app/router.py"),
@@ -1172,8 +1253,15 @@ mod tests {
             &PrefixValue::Literal("/{id}".into()),
         );
         assert_eq!(paths.len(), 2);
-        let resolved: Vec<_> = paths.iter()
-            .filter_map(|p| if let ResolvedPath::Resolved(s) = p { Some(s.as_str()) } else { None })
+        let resolved: Vec<_> = paths
+            .iter()
+            .filter_map(|p| {
+                if let ResolvedPath::Resolved(s) = p {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
             .collect();
         assert!(resolved.contains(&"/v1/books/{id}"));
         assert!(resolved.contains(&"/v2/books/{id}"));
@@ -1194,8 +1282,15 @@ mod tests {
             &PrefixValue::Literal("/items".into()),
         );
         assert_eq!(paths.len(), 2, "both mount points must produce a record");
-        let strs: Vec<&str> = paths.iter()
-            .filter_map(|p| if let ResolvedPath::Resolved(s) = p { Some(s.as_str()) } else { None })
+        let strs: Vec<&str> = paths
+            .iter()
+            .filter_map(|p| {
+                if let ResolvedPath::Resolved(s) = p {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
             .collect();
         assert!(strs.contains(&"/v1/items"), "/v1 mount should resolve");
         assert!(strs.contains(&"/v2/items"), "/v2 mount should resolve");
@@ -1223,7 +1318,10 @@ mod tests {
         let mut index: HashMap<String, Vec<NodeId>> = HashMap::new();
         for &(name, uri_str) in defs {
             let uri: Uri = uri_str.parse().unwrap();
-            let node_id = NodeId { uri, range: Default::default() };
+            let node_id = NodeId {
+                uri,
+                range: Default::default(),
+            };
             index.entry(name.to_owned()).or_default().push(node_id);
         }
         index
@@ -1232,7 +1330,10 @@ mod tests {
     // ── SCC / cycle tests ─────────────────────────────────────────────────────
 
     fn make_node(uri_str: &str) -> NodeId {
-        NodeId { uri: uri_str.parse().unwrap(), range: Default::default() }
+        NodeId {
+            uri: uri_str.parse().unwrap(),
+            range: Default::default(),
+        }
     }
 
     fn make_uses(pairs: &[(&str, &str)]) -> HashMap<NodeId, Vec<NodeId>> {
@@ -1295,7 +1396,10 @@ mod tests {
         for i in 0..9_999usize {
             pairs.push((format!("file:///n{i}.py"), format!("file:///n{}.py", i + 1)));
         }
-        let pair_refs: Vec<(&str, &str)> = pairs.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let pair_refs: Vec<(&str, &str)> = pairs
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
         let uses = make_uses(&pair_refs);
         let sccs = tarjan_sccs(&uses);
         assert!(sccs.is_empty(), "linear chain has no cycles");
@@ -1307,7 +1411,10 @@ mod tests {
             ("file:///a.py", "file:///b.py"),
             ("file:///b.py", "file:///a.py"),
         ]);
-        let dep_graph = DepGraph { uses, ..Default::default() };
+        let dep_graph = DepGraph {
+            uses,
+            ..Default::default()
+        };
         let cycle_map = build_cycle_map(&dep_graph);
         assert!(cycle_map.contains_key(&make_node("file:///a.py")));
         assert!(cycle_map.contains_key(&make_node("file:///b.py")));
@@ -1333,7 +1440,10 @@ mod tests {
         let mut facts_app = FileFacts::new(uri_app.clone());
         facts_app.dep_defs.push(DepDef {
             name: "get_db".to_owned(),
-            node_id: NodeId { uri: uri_app.clone(), range: def_range },
+            node_id: NodeId {
+                uri: uri_app.clone(),
+                range: def_range,
+            },
             has_yield: true,
             param_names: vec![],
         });
@@ -1352,7 +1462,10 @@ mod tests {
         state.file_facts.insert(uri_test.clone(), facts_test);
 
         let dep_graph = build_dep_graph(&state);
-        let def_node = NodeId { uri: uri_app.clone(), range: def_range };
+        let def_node = NodeId {
+            uri: uri_app.clone(),
+            range: def_range,
+        };
         assert!(dep_graph.override_sites.contains_key(&def_node));
         let sites = &dep_graph.override_sites[&def_node];
         assert_eq!(sites.len(), 1);
@@ -1415,12 +1528,7 @@ mod tests {
     #[test]
     fn middleware_reversed_within_level() {
         // add_middleware(A), add_middleware(B) → B runs first (prepend semantics)
-        let ctx = make_ctx_with_mw(
-            &[],
-            &["app"],
-            &[],
-            &[("app", "A"), ("app", "B")],
-        );
+        let ctx = make_ctx_with_mw(&[], &["app"], &[], &[("app", "A"), ("app", "B")]);
         let chain = ctx.middleware_chain("app");
         assert_eq!(chain, vec!["B", "A"]);
     }
@@ -1455,23 +1563,22 @@ mod tests {
     #[test]
     fn middleware_chain_no_infinite_loop_on_cycle() {
         // Even a degenerate include cycle should not loop forever
-        let mut ctx = make_ctx(
-            &[("r", "/x")],
-            &["app"],
-            &[("r", "", "app")],
-        );
+        let mut ctx = make_ctx(&[("r", "/x")], &["app"], &[("r", "", "app")]);
         // Add a cycle: app also has an include pointing back at r (shouldn't happen in real code
         // but guard is needed; seen set prevents revisits)
-        ctx.includes_by_target.entry("app".to_owned()).or_default().push((
-            crate::state::IncludeCall {
-                app_name: "app".to_owned(),
-                target: "r".to_owned(),
-                prefix: crate::state::PrefixValue::Literal("".to_owned()),
-                dependencies: vec![],
-                range: Default::default(),
-            },
-            "file:///app.py".parse().unwrap(),
-        ));
+        ctx.includes_by_target
+            .entry("app".to_owned())
+            .or_default()
+            .push((
+                crate::state::IncludeCall {
+                    app_name: "app".to_owned(),
+                    target: "r".to_owned(),
+                    prefix: crate::state::PrefixValue::Literal("".to_owned()),
+                    dependencies: vec![],
+                    range: Default::default(),
+                },
+                "file:///app.py".parse().unwrap(),
+            ));
         let chain = ctx.middleware_chain("r"); // must terminate
         drop(chain);
     }
@@ -1502,7 +1609,10 @@ mod tests {
     fn trie_literal_path_match() {
         let mut root = TrieNode::default();
         trie_insert(&mut root, &["api", "users"], rid("get_users"));
-        assert_eq!(trie_lookup(&root, &["api", "users"]), vec![rid("get_users")]);
+        assert_eq!(
+            trie_lookup(&root, &["api", "users"]),
+            vec![rid("get_users")]
+        );
     }
 
     #[test]
@@ -1531,14 +1641,20 @@ mod tests {
     fn trie_path_param_matches_single_remaining_segment() {
         let mut root = TrieNode::default();
         trie_insert(&mut root, &["files", "{path:path}"], rid("get_file"));
-        assert_eq!(trie_lookup(&root, &["files", "readme.txt"]), vec![rid("get_file")]);
+        assert_eq!(
+            trie_lookup(&root, &["files", "readme.txt"]),
+            vec![rid("get_file")]
+        );
     }
 
     #[test]
     fn trie_path_param_matches_multiple_remaining_segments() {
         let mut root = TrieNode::default();
         trie_insert(&mut root, &["files", "{path:path}"], rid("get_file"));
-        assert_eq!(trie_lookup(&root, &["files", "a", "b", "c"]), vec![rid("get_file")]);
+        assert_eq!(
+            trie_lookup(&root, &["files", "a", "b", "c"]),
+            vec![rid("get_file")]
+        );
     }
 
     #[test]
@@ -1570,29 +1686,35 @@ mod tests {
         // Route: /items (no trailing slash) — client calls /items/ (with slash)
         let id = rid("get_items:GET");
         let mut route_index = HashMap::new();
-        route_index.insert(id.clone(), vec![RouteRecord {
-            id: id.clone(),
-            ordinal: 0,
-            name: "get_items".into(),
-            method: crate::state::Method::Get,
-            resolved_path: ResolvedPath::Resolved("/items".into()),
-            decorator_path: "/items".into(),
-            chain: vec![],
-            handler: Location { uri: "file:///a.py".parse().unwrap(), range: Default::default() },
-            path_params: vec![],
-            response_model: None,
-            response_model_range: None,
-            return_annotation: None,
-            dependencies: vec![],
-            middleware: vec![],
-            path_range: None,
-            path_quote_width: None,
-            handler_params: vec![],
-            handler_param_ranges: vec![],
-            params_insert_pos: None,
-            handler_has_splat_args: false,
-            handler_params_known: false,
-        }]);
+        route_index.insert(
+            id.clone(),
+            vec![RouteRecord {
+                id: id.clone(),
+                ordinal: 0,
+                name: "get_items".into(),
+                method: crate::state::Method::Get,
+                resolved_path: ResolvedPath::Resolved("/items".into()),
+                decorator_path: "/items".into(),
+                chain: vec![],
+                handler: Location {
+                    uri: "file:///a.py".parse().unwrap(),
+                    range: Default::default(),
+                },
+                path_params: vec![],
+                response_model: None,
+                response_model_range: None,
+                return_annotation: None,
+                dependencies: vec![],
+                middleware: vec![],
+                path_range: None,
+                path_quote_width: None,
+                handler_params: vec![],
+                handler_param_ranges: vec![],
+                params_insert_pos: None,
+                handler_has_splat_args: false,
+                handler_params_known: false,
+            }],
+        );
         let trie = build_path_trie(&route_index);
 
         // Exact: /items/ does NOT match /items → retry fires and finds /items
@@ -1612,7 +1734,10 @@ mod tests {
     fn trie_uuid_converter_goes_to_param_branch() {
         let mut root = TrieNode::default();
         trie_insert(&mut root, &["items", "{item_id:uuid}"], rid("get_item"));
-        assert_eq!(trie_lookup(&root, &["items", "abc-123"]), vec![rid("get_item")]);
+        assert_eq!(
+            trie_lookup(&root, &["items", "abc-123"]),
+            vec![rid("get_item")]
+        );
     }
 
     #[test]
@@ -1628,35 +1753,43 @@ mod tests {
         // Route: /items (no slash) — client calls /items/?page=1
         let id = rid("get_items:GET");
         let mut route_index = HashMap::new();
-        route_index.insert(id.clone(), vec![RouteRecord {
-            id: id.clone(),
-            ordinal: 0,
-            name: "get_items".into(),
-            method: crate::state::Method::Get,
-            resolved_path: ResolvedPath::Resolved("/items".into()),
-            decorator_path: "/items".into(),
-            chain: vec![],
-            handler: Location {
-                uri: "file:///a.py".parse().unwrap(),
-                range: Default::default(),
-            },
-            path_params: vec![],
-            response_model: None,
-            response_model_range: None,
-            return_annotation: None,
-            dependencies: vec![],
-            middleware: vec![],
-            path_range: None,
-            path_quote_width: None,
-            handler_params: vec![],
-            handler_param_ranges: vec![],
-            params_insert_pos: None,
-            handler_has_splat_args: false,
-            handler_params_known: false,
-        }]);
+        route_index.insert(
+            id.clone(),
+            vec![RouteRecord {
+                id: id.clone(),
+                ordinal: 0,
+                name: "get_items".into(),
+                method: crate::state::Method::Get,
+                resolved_path: ResolvedPath::Resolved("/items".into()),
+                decorator_path: "/items".into(),
+                chain: vec![],
+                handler: Location {
+                    uri: "file:///a.py".parse().unwrap(),
+                    range: Default::default(),
+                },
+                path_params: vec![],
+                response_model: None,
+                response_model_range: None,
+                return_annotation: None,
+                dependencies: vec![],
+                middleware: vec![],
+                path_range: None,
+                path_quote_width: None,
+                handler_params: vec![],
+                handler_param_ranges: vec![],
+                params_insert_pos: None,
+                handler_has_splat_args: false,
+                handler_params_known: false,
+            }],
+        );
         let trie = build_path_trie(&route_index);
         // Slash-insensitive retry must find /items despite the trailing /? in input
-        let matched = match_call(&trie, &route_index, "/items/?page=1", &crate::state::Method::Get);
+        let matched = match_call(
+            &trie,
+            &route_index,
+            "/items/?page=1",
+            &crate::state::Method::Get,
+        );
         assert_eq!(matched, vec![id]);
     }
 
@@ -1665,38 +1798,51 @@ mod tests {
         // Route GET /users — POST call must not match
         let id = rid("list_users:GET");
         let mut route_index = HashMap::new();
-        route_index.insert(id.clone(), vec![RouteRecord {
-            id: id.clone(),
-            ordinal: 0,
-            name: "list_users".into(),
-            method: crate::state::Method::Get,
-            resolved_path: ResolvedPath::Resolved("/users".into()),
-            decorator_path: "/users".into(),
-            chain: vec![],
-            handler: Location { uri: "file:///a.py".parse().unwrap(), range: Default::default() },
-            path_params: vec![],
-            response_model: None,
-            response_model_range: None,
-            return_annotation: None,
-            dependencies: vec![],
-            middleware: vec![],
-            path_range: None,
-            path_quote_width: None,
-            handler_params: vec![],
-            handler_param_ranges: vec![],
-            params_insert_pos: None,
-            handler_has_splat_args: false,
-            handler_params_known: false,
-        }]);
+        route_index.insert(
+            id.clone(),
+            vec![RouteRecord {
+                id: id.clone(),
+                ordinal: 0,
+                name: "list_users".into(),
+                method: crate::state::Method::Get,
+                resolved_path: ResolvedPath::Resolved("/users".into()),
+                decorator_path: "/users".into(),
+                chain: vec![],
+                handler: Location {
+                    uri: "file:///a.py".parse().unwrap(),
+                    range: Default::default(),
+                },
+                path_params: vec![],
+                response_model: None,
+                response_model_range: None,
+                return_annotation: None,
+                dependencies: vec![],
+                middleware: vec![],
+                path_range: None,
+                path_quote_width: None,
+                handler_params: vec![],
+                handler_param_ranges: vec![],
+                params_insert_pos: None,
+                handler_has_splat_args: false,
+                handler_params_known: false,
+            }],
+        );
         let trie = build_path_trie(&route_index);
 
         assert!(match_call(&trie, &route_index, "/users", &crate::state::Method::Post).is_empty());
-        assert_eq!(match_call(&trie, &route_index, "/users", &crate::state::Method::Get), vec![id]);
+        assert_eq!(
+            match_call(&trie, &route_index, "/users", &crate::state::Method::Get),
+            vec![id]
+        );
     }
 
     // ── route_names gate for MOUNT routes ─────────────────────────────────────
 
-    fn make_mount_fact(app_name: &str, path: &str, route_name: Option<&str>) -> crate::state::RouteFact {
+    fn make_mount_fact(
+        app_name: &str,
+        path: &str,
+        route_name: Option<&str>,
+    ) -> crate::state::RouteFact {
         crate::state::RouteFact {
             handler_name: route_name.unwrap_or("StaticFiles").to_owned(),
             handler_range: tower_lsp_server::ls_types::Range::default(),
@@ -1726,13 +1872,20 @@ mod tests {
             crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
         );
         let mut facts = crate::state::FileFacts::new(uri.clone());
-        facts.apps.push(crate::state::AppDecl { name: "app".to_owned(), range: tower_lsp_server::ls_types::Range::default() });
-        facts.routes.push(make_mount_fact("app", "/static", Some("static")));
+        facts.apps.push(crate::state::AppDecl {
+            name: "app".to_owned(),
+            range: tower_lsp_server::ls_types::Range::default(),
+        });
+        facts
+            .routes
+            .push(make_mount_fact("app", "/static", Some("static")));
         state.file_facts.insert(uri, facts);
 
         let linked = build(&state, 1, &[], &[]);
-        assert!(linked.route_names.contains_key("static"),
-            "named mount should appear in route_names");
+        assert!(
+            linked.route_names.contains_key("static"),
+            "named mount should appear in route_names"
+        );
     }
 
     #[test]
@@ -1742,13 +1895,18 @@ mod tests {
             crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
         );
         let mut facts = crate::state::FileFacts::new(uri.clone());
-        facts.apps.push(crate::state::AppDecl { name: "app".to_owned(), range: tower_lsp_server::ls_types::Range::default() });
+        facts.apps.push(crate::state::AppDecl {
+            name: "app".to_owned(),
+            range: tower_lsp_server::ls_types::Range::default(),
+        });
         facts.routes.push(make_mount_fact("app", "/static", None));
         state.file_facts.insert(uri, facts);
 
         let linked = build(&state, 1, &[], &[]);
-        assert!(!linked.route_names.contains_key("StaticFiles"),
-            "unnamed mount handler_name should NOT appear in route_names");
+        assert!(
+            !linked.route_names.contains_key("StaticFiles"),
+            "unnamed mount handler_name should NOT appear in route_names"
+        );
     }
 
     // ── Template index tests ──────────────────────────────────────────────────
@@ -1791,8 +1949,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root2);
 
         let uri = index.get("base.html").expect("base.html must be in index");
-        assert!(uri.path().as_str().contains(root1.file_name().unwrap().to_str().unwrap()),
-            "higher-precedence root1 must win: got {uri:?}");
+        assert!(
+            uri.path()
+                .as_str()
+                .contains(root1.file_name().unwrap().to_str().unwrap()),
+            "higher-precedence root1 must win: got {uri:?}"
+        );
     }
 
     #[test]
@@ -1825,26 +1987,59 @@ mod tests {
         };
         // Both files declare a variable named "router" with different prefixes.
         ctx.routers.entry("router".to_owned()).or_default().push((
-            RouterDecl { name: "router".to_owned(), prefix: PrefixValue::Literal("/a".to_owned()), tags: vec![], range: Default::default() },
+            RouterDecl {
+                name: "router".to_owned(),
+                prefix: PrefixValue::Literal("/a".to_owned()),
+                tags: vec![],
+                range: Default::default(),
+            },
             file_a.clone(),
         ));
         ctx.routers.entry("router".to_owned()).or_default().push((
-            RouterDecl { name: "router".to_owned(), prefix: PrefixValue::Literal("/b".to_owned()), tags: vec![], range: Default::default() },
+            RouterDecl {
+                name: "router".to_owned(),
+                prefix: PrefixValue::Literal("/b".to_owned()),
+                tags: vec![],
+                range: Default::default(),
+            },
             file_b.clone(),
         ));
         ctx.apps.insert("app".to_owned());
         // Both routers are included into the same app.
-        ctx.includes_by_target.entry("router".to_owned()).or_default().push((
-            IncludeCall { app_name: "app".to_owned(), target: "router".to_owned(), prefix: PrefixValue::Literal(String::new()), dependencies: vec![], range: Default::default() },
-            main_uri.clone(),
-        ));
+        ctx.includes_by_target
+            .entry("router".to_owned())
+            .or_default()
+            .push((
+                IncludeCall {
+                    app_name: "app".to_owned(),
+                    target: "router".to_owned(),
+                    prefix: PrefixValue::Literal(String::new()),
+                    dependencies: vec![],
+                    range: Default::default(),
+                },
+                main_uri.clone(),
+            ));
 
         // Route in file_a on "router" should resolve using file_a's prefix "/a".
-        let resolved = ctx.resolve_route_paths(&file_a, "router", &PrefixValue::Literal("/items".to_owned()));
-        assert_eq!(resolved, vec![ResolvedPath::Resolved("/a/items".to_owned())]);
+        let resolved = ctx.resolve_route_paths(
+            &file_a,
+            "router",
+            &PrefixValue::Literal("/items".to_owned()),
+        );
+        assert_eq!(
+            resolved,
+            vec![ResolvedPath::Resolved("/a/items".to_owned())]
+        );
 
         // Route in file_b on "router" should resolve using file_b's prefix "/b".
-        let resolved = ctx.resolve_route_paths(&file_b, "router", &PrefixValue::Literal("/items".to_owned()));
-        assert_eq!(resolved, vec![ResolvedPath::Resolved("/b/items".to_owned())]);
+        let resolved = ctx.resolve_route_paths(
+            &file_b,
+            "router",
+            &PrefixValue::Literal("/items".to_owned()),
+        );
+        assert_eq!(
+            resolved,
+            vec![ResolvedPath::Resolved("/b/items".to_owned())]
+        );
     }
 }

@@ -1,5 +1,5 @@
-use tree_sitter::{Node, Point};
 use tower_lsp_server::ls_types::Position;
+use tree_sitter::{Node, Point};
 
 #[allow(dead_code)]
 pub fn ts_point_to_position(p: Point) -> Position {
@@ -8,7 +8,10 @@ pub fn ts_point_to_position(p: Point) -> Position {
 
 #[allow(dead_code)]
 pub fn position_to_ts_point(p: Position) -> Point {
-    Point { row: p.line as usize, column: p.character as usize }
+    Point {
+        row: p.line as usize,
+        column: p.character as usize,
+    }
 }
 
 /// Returns true if `pos` lies within `[start, end)` — end-exclusive, matching tree-sitter and LSP.

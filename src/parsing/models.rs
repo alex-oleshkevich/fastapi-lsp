@@ -169,15 +169,16 @@ fn extract_imports(src: &[u8], root: Node<'_>, facts: &mut FileFacts) {
                                 if !alias_text.is_empty() {
                                     facts.imported_names.push(alias_text.to_owned());
                                     if let Some(ref mp) = module_path {
-                                        facts.imported_from.insert(alias_text.to_owned(), mp.clone());
+                                        facts
+                                            .imported_from
+                                            .insert(alias_text.to_owned(), mp.clone());
                                     }
                                     if let Some(name_node) = item.child_by_field_name("name") {
                                         let original = node_text(src, name_node);
                                         if !original.is_empty() && original != alias_text {
-                                            facts.import_alias_originals.insert(
-                                                alias_text.to_owned(),
-                                                original.to_owned(),
-                                            );
+                                            facts
+                                                .import_alias_originals
+                                                .insert(alias_text.to_owned(), original.to_owned());
                                         }
                                     }
                                 }
@@ -200,13 +201,18 @@ fn extract_models(src: &[u8], root: Node<'_>, facts: &mut FileFacts, enc: crate:
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
         if child.kind() == "class_definition"
-            && let Some(fact) = try_extract_model(src, child, enc) {
-                facts.models.push(fact);
-            }
+            && let Some(fact) = try_extract_model(src, child, enc)
+        {
+            facts.models.push(fact);
+        }
     }
 }
 
-fn try_extract_model(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<ModelFact> {
+fn try_extract_model(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<ModelFact> {
     let name_node = node.child_by_field_name("name")?;
     let class_name = node_text(src, name_node);
     if class_name.is_empty() {
@@ -279,7 +285,12 @@ mod tests {
         let uri: Uri = "file:///a.py".parse().unwrap();
         let mut facts = FileFacts::new(uri);
         let tree = parse_file(src.as_bytes());
-        extract(src.as_bytes(), &tree, &mut facts, crate::offset::Encoding::Utf8);
+        extract(
+            src.as_bytes(),
+            &tree,
+            &mut facts,
+            crate::offset::Encoding::Utf8,
+        );
         facts
     }
 
@@ -319,7 +330,8 @@ mod tests {
 
     #[test]
     fn collects_from_imports() {
-        let facts = extract_from("from app.models import Book, Author\nfrom typing import Optional\n");
+        let facts =
+            extract_from("from app.models import Book, Author\nfrom typing import Optional\n");
         assert!(facts.imported_names.contains(&"Book".to_owned()));
         assert!(facts.imported_names.contains(&"Author".to_owned()));
         assert!(facts.imported_names.contains(&"Optional".to_owned()));
@@ -339,11 +351,16 @@ mod tests {
     #[test]
     fn aliased_import_tracks_original_name() {
         // `from X import router as projects_router` → alias_originals["projects_router"] = "router"
-        let facts = extract_from("from app.features.projects.router import router as projects_router\n");
+        let facts =
+            extract_from("from app.features.projects.router import router as projects_router\n");
         assert_eq!(
-            facts.import_alias_originals.get("projects_router").map(|s| s.as_str()),
+            facts
+                .import_alias_originals
+                .get("projects_router")
+                .map(|s| s.as_str()),
             Some("router"),
-            "alias original must be tracked; got {:?}", facts.import_alias_originals,
+            "alias original must be tracked; got {:?}",
+            facts.import_alias_originals,
         );
     }
 
@@ -375,11 +392,11 @@ mod tests {
     fn module_level_type_alias_suppresses_response_model_diag() {
         // `ProjectSerializer = A | B` at module level: the name must appear
         // in imported_names so model/unknown-response-model is silenced.
-        let facts = extract_from(
-            "from schemas import A, B\nProjectSerializer = A | B\n",
-        );
+        let facts = extract_from("from schemas import A, B\nProjectSerializer = A | B\n");
         assert!(
-            facts.imported_names.contains(&"ProjectSerializer".to_owned()),
+            facts
+                .imported_names
+                .contains(&"ProjectSerializer".to_owned()),
             "module-level assignment target must be in imported_names; got {:?}",
             facts.imported_names,
         );

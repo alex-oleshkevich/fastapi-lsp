@@ -1,11 +1,11 @@
 mod check;
 mod cli;
 mod config;
-mod routes;
 mod features;
 mod linking;
 mod offset;
 mod parsing;
+mod routes;
 mod server;
 mod state;
 mod uri;

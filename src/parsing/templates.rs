@@ -5,8 +5,8 @@ use tree_sitter::{Node, Tree};
 
 use tower_lsp_server::ls_types::{Position, Range};
 
-use crate::state::{FileFacts, TemplateEnvDecl, TemplateRef, TemplateUrlForSite, range_from_node};
 use super::unquote;
+use crate::state::{FileFacts, TemplateEnvDecl, TemplateRef, TemplateUrlForSite, range_from_node};
 
 const ENV_CTORS: &[&str] = &["Jinja2Templates", "Environment"];
 const TEMPLATE_METHODS: &[&str] = &["TemplateResponse", "get_template"];
@@ -32,17 +32,22 @@ fn collect_env_decls(
     enc: crate::offset::Encoding,
 ) {
     if (node.kind() == "assignment" || node.kind() == "annotated_assignment")
-        && let Some(decl) = try_extract_env_decl(src, node, enc) {
-            env_names.push(decl.var_name.clone());
-            facts.template_envs.push(decl);
-        }
+        && let Some(decl) = try_extract_env_decl(src, node, enc)
+    {
+        env_names.push(decl.var_name.clone());
+        facts.template_envs.push(decl);
+    }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_env_decls(src, child, facts, env_names, enc);
     }
 }
 
-fn try_extract_env_decl(src: &[u8], assign: Node<'_>, enc: crate::offset::Encoding) -> Option<TemplateEnvDecl> {
+fn try_extract_env_decl(
+    src: &[u8],
+    assign: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<TemplateEnvDecl> {
     let left = assign.child_by_field_name("left")?;
     if left.kind() != "identifier" {
         return None;
@@ -58,12 +63,17 @@ fn try_extract_env_decl(src: &[u8], assign: Node<'_>, enc: crate::offset::Encodi
     let ctor_name = match func.kind() {
         "identifier" => node_text(src, func),
         "attribute" => {
-            let attr = func.child_by_field_name("attribute").map(|n| node_text(src, n))?;
+            let attr = func
+                .child_by_field_name("attribute")
+                .map(|n| node_text(src, n))?;
             // For attribute access, only accept jinja2.Environment — bare `Environment`
             // (from `from jinja2 import Environment`) is handled by the identifier arm.
             // Any other X.Environment (e.g., SQLAlchemy) must not be treated as a template env.
             if attr == "Environment" {
-                let obj = func.child_by_field_name("object").map(|n| node_text(src, n)).unwrap_or("");
+                let obj = func
+                    .child_by_field_name("object")
+                    .map(|n| node_text(src, n))
+                    .unwrap_or("");
                 if obj != "jinja2" {
                     return None;
                 }
@@ -79,7 +89,11 @@ fn try_extract_env_decl(src: &[u8], assign: Node<'_>, enc: crate::offset::Encodi
     let args = right.child_by_field_name("arguments")?;
     let directories = extract_directory_args(src, args);
 
-    Some(TemplateEnvDecl { var_name, directories, range: range_from_node(left, src, enc) })
+    Some(TemplateEnvDecl {
+        var_name,
+        directories,
+        range: range_from_node(left, src, enc),
+    })
 }
 
 /// Extract `directory=` kwarg or first positional string from a constructor's args.
@@ -94,9 +108,10 @@ fn extract_directory_args(src: &[u8], args: Node<'_>) -> Vec<String> {
             "keyword_argument" => {
                 let key = child.child(0).map(|n| node_text(src, n)).unwrap_or("");
                 if key == "directory"
-                    && let Some(val) = child.child(2) {
-                        push_string_or_list(src, val, &mut dirs);
-                    }
+                    && let Some(val) = child.child(2)
+                {
+                    push_string_or_list(src, val, &mut dirs);
+                }
             }
             _ if positional_count == 0 => {
                 push_string_or_list(src, child, &mut dirs);
@@ -135,9 +150,10 @@ fn collect_template_refs(
     enc: crate::offset::Encoding,
 ) {
     if node.kind() == "call"
-        && let Some(tpl) = try_extract_template_ref(src, node, env_names, enc) {
-            facts.templates.push(tpl);
-        }
+        && let Some(tpl) = try_extract_template_ref(src, node, env_names, enc)
+    {
+        facts.templates.push(tpl);
+    }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_template_refs(src, child, env_names, facts, enc);
@@ -174,7 +190,10 @@ fn try_extract_template_ref(
     let args = call.child_by_field_name("arguments")?;
     let (path, string_range) = extract_template_name(src, args, enc)?;
 
-    Some(TemplateRef { path, range: string_range })
+    Some(TemplateRef {
+        path,
+        range: string_range,
+    })
 }
 
 /// Extract the template name string from a call's argument list.
@@ -184,7 +203,11 @@ fn try_extract_template_ref(
 /// 2. First string literal in the positional args — handles both argument orders:
 ///    - legacy  `TemplateResponse("name.html", context)` → "name.html" is arg 0
 ///    - modern  `TemplateResponse(request, "name.html")` → request is not a string, "name.html" is arg 1
-fn extract_template_name(src: &[u8], args: Node<'_>, enc: crate::offset::Encoding) -> Option<(String, Range)> {
+fn extract_template_name(
+    src: &[u8],
+    args: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<(String, Range)> {
     // Check for `name=` kwarg first.
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
@@ -192,9 +215,10 @@ fn extract_template_name(src: &[u8], args: Node<'_>, enc: crate::offset::Encodin
             let key = child.child(0).map(|n| node_text(src, n)).unwrap_or("");
             if key == "name"
                 && let Some(val) = child.child(2)
-                    && val.kind() == "string" {
-                        return Some((unquote(node_text(src, val)), range_from_node(val, src, enc)));
-                    }
+                && val.kind() == "string"
+            {
+                return Some((unquote(node_text(src, val)), range_from_node(val, src, enc)));
+            }
         }
     }
 
@@ -204,7 +228,12 @@ fn extract_template_name(src: &[u8], args: Node<'_>, enc: crate::offset::Encodin
         match child.kind() {
             "(" | ")" | "," => continue,
             "keyword_argument" | "dictionary_splat_argument" | "list_splat_argument" => break,
-            "string" => return Some((unquote(node_text(src, child)), range_from_node(child, src, enc))),
+            "string" => {
+                return Some((
+                    unquote(node_text(src, child)),
+                    range_from_node(child, src, enc),
+                ));
+            }
             _ => {}
         }
     }
@@ -231,13 +260,22 @@ pub fn scan_url_for_sites(src: &[u8]) -> Vec<TemplateUrlForSite> {
 
     // Build a table of byte offsets for the start of each line (0-indexed).
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(text.char_indices().filter(|(_, c)| *c == '\n').map(|(i, _)| i + 1))
+        .chain(
+            text.char_indices()
+                .filter(|(_, c)| *c == '\n')
+                .map(|(i, _)| i + 1),
+        )
         .collect();
 
     let offset_to_pos = |offset: usize| -> Position {
         // partition_point returns the first index where s > offset, so -1 is the containing line.
-        let line = line_starts.partition_point(|&s| s <= offset).saturating_sub(1);
-        Position { line: line as u32, character: (offset - line_starts[line]) as u32 }
+        let line = line_starts
+            .partition_point(|&s| s <= offset)
+            .saturating_sub(1);
+        Position {
+            line: line as u32,
+            character: (offset - line_starts[line]) as u32,
+        }
     };
 
     const PATTERNS: &[&str] = &["url_for(", "url_path_for("];
@@ -246,9 +284,14 @@ pub fn scan_url_for_sites(src: &[u8]) -> Vec<TemplateUrlForSite> {
     let mut search_from = 0;
 
     while search_from < text.len() {
-        let found = PATTERNS.iter().filter_map(|pat| {
-            text[search_from..].find(pat).map(|i| (search_from + i, *pat))
-        }).min_by_key(|(pos, _)| *pos);
+        let found = PATTERNS
+            .iter()
+            .filter_map(|pat| {
+                text[search_from..]
+                    .find(pat)
+                    .map(|i| (search_from + i, *pat))
+            })
+            .min_by_key(|(pos, _)| *pos);
 
         let (match_start, pat) = match found {
             Some(x) => x,
@@ -259,7 +302,11 @@ pub fn scan_url_for_sites(src: &[u8]) -> Vec<TemplateUrlForSite> {
         if let Some((name, string_range, kwarg_names)) =
             parse_call_args(text, args_start, &offset_to_pos)
         {
-            sites.push(TemplateUrlForSite { name, string_range, kwarg_names });
+            sites.push(TemplateUrlForSite {
+                name,
+                string_range,
+                kwarg_names,
+            });
         }
         // Advance past the matched pattern (all ASCII) to stay on a char boundary.
         search_from = match_start + pat.len();
@@ -331,7 +378,10 @@ fn collect_kwarg_names(rest: &str, start_byte: usize) -> Vec<String> {
             '(' => depth += 1,
             ')' => {
                 depth -= 1;
-                if depth == 0 { end_byte = bi; break; }
+                if depth == 0 {
+                    end_byte = bi;
+                    break;
+                }
             }
             _ => {}
         }
@@ -346,8 +396,16 @@ fn collect_kwarg_names(rest: &str, start_byte: usize) -> Vec<String> {
     while bi < bytes.len() {
         let b = bytes[bi];
         match b {
-            b'(' | b'[' | b'{' => { depth += 1; word_start = None; bi += 1; }
-            b')' | b']' | b'}' => { depth -= 1; word_start = None; bi += 1; }
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                word_start = None;
+                bi += 1;
+            }
+            b')' | b']' | b'}' => {
+                depth -= 1;
+                word_start = None;
+                bi += 1;
+            }
             b'=' if depth == 0 => {
                 if let Some(ws) = word_start {
                     let ident = args_text[ws..bi].trim();
@@ -359,10 +417,15 @@ fn collect_kwarg_names(rest: &str, start_byte: usize) -> Vec<String> {
                 bi += 1;
             }
             b if b.is_ascii_alphanumeric() || b == b'_' => {
-                if word_start.is_none() { word_start = Some(bi); }
+                if word_start.is_none() {
+                    word_start = Some(bi);
+                }
                 bi += 1;
             }
-            _ => { word_start = None; bi += 1; }
+            _ => {
+                word_start = None;
+                bi += 1;
+            }
         }
     }
 
@@ -461,7 +524,11 @@ mod tests {
         // This is fine: we deliberately match ANY `url_for(` occurrence including through
         // `request.url_for(`. The Python-side url_for scanner already handles those in .py files.
         let sites = scan(r#"{{ request.url_for('home') }}"#);
-        assert_eq!(sites.len(), 1, "request.url_for( contains url_for( so it IS matched");
+        assert_eq!(
+            sites.len(),
+            1,
+            "request.url_for( contains url_for( so it IS matched"
+        );
         assert_eq!(sites[0].name, "home");
     }
 
@@ -561,7 +628,11 @@ tpl = templates.get_template("email/welcome.html")
 def index():
     return something.TemplateResponse("index.html", {})
 "#);
-        assert_eq!(facts.templates.len(), 0, "must not fire when receiver is not a known env");
+        assert_eq!(
+            facts.templates.len(),
+            0,
+            "must not fire when receiver is not a known env"
+        );
     }
 
     #[test]
@@ -572,7 +643,11 @@ def index():
     name = get_template_name()
     return templates.TemplateResponse(request, name)
 "#);
-        assert_eq!(facts.templates.len(), 0, "non-literal template name must be skipped (P4)");
+        assert_eq!(
+            facts.templates.len(),
+            0,
+            "non-literal template name must be skipped (P4)"
+        );
     }
 
     #[test]
@@ -581,7 +656,11 @@ def index():
 from fastapi.templating import Jinja2Templates
 templates: Jinja2Templates = Jinja2Templates(directory="templates")
 "#);
-        assert_eq!(facts.template_envs.len(), 1, "annotated_assignment must be recognized");
+        assert_eq!(
+            facts.template_envs.len(),
+            1,
+            "annotated_assignment must be recognized"
+        );
         assert_eq!(facts.template_envs[0].var_name, "templates");
     }
 
@@ -610,7 +689,11 @@ env = Environment(loader=None)
 import sqlalchemy
 env = sqlalchemy.Environment()
 "#);
-        assert_eq!(facts.template_envs.len(), 0, "X.Environment where X != jinja2 must be rejected");
+        assert_eq!(
+            facts.template_envs.len(),
+            0,
+            "X.Environment where X != jinja2 must be rejected"
+        );
     }
 
     #[test]
@@ -620,7 +703,11 @@ templates = Jinja2Templates(directory="templates")
 def index():
     return get_templates().TemplateResponse(request, "index.html")
 "#);
-        assert_eq!(facts.templates.len(), 0, "non-identifier receiver must be rejected");
+        assert_eq!(
+            facts.templates.len(),
+            0,
+            "non-identifier receiver must be rejected"
+        );
     }
 
     #[test]

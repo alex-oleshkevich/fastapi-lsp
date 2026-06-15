@@ -32,21 +32,30 @@ mod tests {
     fn roundtrip_ascii_path() {
         let path = std::path::Path::new("/home/user/project/app.py");
         let uri = path_to_uri(path).unwrap();
-        assert_eq!(uri_to_path(&uri), Some(PathBuf::from("/home/user/project/app.py")));
+        assert_eq!(
+            uri_to_path(&uri),
+            Some(PathBuf::from("/home/user/project/app.py"))
+        );
     }
 
     #[test]
     fn roundtrip_path_with_space() {
         let path = std::path::Path::new("/home/user/my project/app.py");
         let uri = path_to_uri(path).unwrap();
-        assert_eq!(uri_to_path(&uri), Some(PathBuf::from("/home/user/my project/app.py")));
+        assert_eq!(
+            uri_to_path(&uri),
+            Some(PathBuf::from("/home/user/my project/app.py"))
+        );
     }
 
     #[test]
     fn roundtrip_path_with_hash() {
         let path = std::path::Path::new("/home/user/my#project/app.py");
         let uri = path_to_uri(path).unwrap();
-        assert_eq!(uri_to_path(&uri), Some(PathBuf::from("/home/user/my#project/app.py")));
+        assert_eq!(
+            uri_to_path(&uri),
+            Some(PathBuf::from("/home/user/my#project/app.py"))
+        );
     }
 
     #[test]

@@ -53,13 +53,15 @@ mod tests {
             range: range(5, 10, 5, 22),
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri_py.clone(), facts);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("index.html".to_owned(), uri_tpl.clone());
+        linked
+            .template_index
+            .insert("index.html".to_owned(), uri_tpl.clone());
         state.linked.store(Arc::new(linked));
 
         let links = document_links(&state, &uri_py);
@@ -79,9 +81,9 @@ mod tests {
             range: range(3, 0, 3, 14),
         });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri_py.clone(), facts);
         state.linked.store(Arc::new(Linked::default()));
 
@@ -96,18 +98,31 @@ mod tests {
         let uri_b: Uri = "file:///tpl/b.html".parse().unwrap();
 
         let mut facts = FileFacts::new(uri_py.clone());
-        facts.templates.push(TemplateRef { path: "a.html".to_owned(), range: range(1, 0, 1, 8) });
-        facts.templates.push(TemplateRef { path: "missing.html".to_owned(), range: range(2, 0, 2, 14) });
-        facts.templates.push(TemplateRef { path: "b.html".to_owned(), range: range(3, 0, 3, 8) });
+        facts.templates.push(TemplateRef {
+            path: "a.html".to_owned(),
+            range: range(1, 0, 1, 8),
+        });
+        facts.templates.push(TemplateRef {
+            path: "missing.html".to_owned(),
+            range: range(2, 0, 2, 14),
+        });
+        facts.templates.push(TemplateRef {
+            path: "b.html".to_owned(),
+            range: range(3, 0, 3, 8),
+        });
 
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.file_facts.insert(uri_py.clone(), facts);
 
         let mut linked = Linked::default();
-        linked.template_index.insert("a.html".to_owned(), uri_a.clone());
-        linked.template_index.insert("b.html".to_owned(), uri_b.clone());
+        linked
+            .template_index
+            .insert("a.html".to_owned(), uri_a.clone());
+        linked
+            .template_index
+            .insert("b.html".to_owned(), uri_b.clone());
         state.linked.store(Arc::new(linked));
 
         let links = document_links(&state, &uri_py);
@@ -120,9 +135,9 @@ mod tests {
     #[test]
     fn no_facts_returns_empty() {
         let uri_py: Uri = "file:///app/unknown.py".parse().unwrap();
-        let state = crate::state::WorkspaceState::new(
-            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
-        );
+        let state = crate::state::WorkspaceState::new(ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
         state.linked.store(Arc::new(Linked::default()));
 
         let links = document_links(&state, &uri_py);

@@ -9,7 +9,11 @@ pub enum Encoding {
 impl Encoding {
     #[allow(dead_code)]
     pub fn from_str(s: &str) -> Self {
-        if s == "utf-8" { Encoding::Utf8 } else { Encoding::Utf16 }
+        if s == "utf-8" {
+            Encoding::Utf8
+        } else {
+            Encoding::Utf16
+        }
     }
 }
 
@@ -137,7 +141,10 @@ mod tests {
             assert_eq!(off, 1, "byte {mid} should snap to emoji start (byte 1)");
             // Verify the returned offset is actually a char boundary
             let text = std::str::from_utf8(src).unwrap();
-            assert!(text.is_char_boundary(off), "offset {off} must be a char boundary");
+            assert!(
+                text.is_char_boundary(off),
+                "offset {off} must be a char boundary"
+            );
         }
     }
 

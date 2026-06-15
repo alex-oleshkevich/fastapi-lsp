@@ -3,13 +3,21 @@ use std::collections::HashMap;
 use tower_lsp_server::ls_types::{Range, Uri};
 use tree_sitter::{Node, Tree};
 
-use crate::state::{
-    AppDecl, FileFacts, IncludeCall, Method, PrefixValue, RouterDecl, RouteFact, range_from_node,
-};
 use super::unquote;
+use crate::state::{
+    AppDecl, FileFacts, IncludeCall, Method, PrefixValue, RouteFact, RouterDecl, range_from_node,
+};
 
 const ROUTE_METHODS: &[&str] = &[
-    "get", "post", "put", "delete", "patch", "options", "head", "trace", "websocket",
+    "get",
+    "post",
+    "put",
+    "delete",
+    "patch",
+    "options",
+    "head",
+    "trace",
+    "websocket",
     "api_route",
 ];
 
@@ -54,9 +62,10 @@ fn collect_constants_recursive(src: &[u8], node: Node<'_>, map: &mut HashMap<Str
         }
         "expression_statement" => {
             if let Some(inner) = node.child(0)
-                && inner.kind() == "assignment" {
-                    maybe_collect_constant(src, inner, map);
-                }
+                && inner.kind() == "assignment"
+            {
+                maybe_collect_constant(src, inner, map);
+            }
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 collect_constants_recursive(src, child, map);
@@ -117,7 +126,13 @@ fn walk(
     }
 }
 
-fn recurse(src: &[u8], node: Node<'_>, consts: &HashMap<String, String>, facts: &mut FileFacts, enc: crate::offset::Encoding) {
+fn recurse(
+    src: &[u8],
+    node: Node<'_>,
+    consts: &HashMap<String, String>,
+    facts: &mut FileFacts,
+    enc: crate::offset::Encoding,
+) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         walk(src, child, consts, facts, enc);
@@ -197,12 +212,42 @@ fn extract_return_annotation(src: &[u8], func_node: Node<'_>) -> Option<String> 
     let name = node_text(src, type_node);
     // Suppress Python builtins and typing utilities that are never Pydantic models.
     const BUILTINS: &[&str] = &[
-        "None", "str", "int", "float", "bool", "bytes", "bytearray", "list", "dict", "set",
-        "tuple", "Any", "Optional", "List", "Dict", "Set", "Tuple", "Union", "Type",
-        "ClassVar", "Final", "Literal", "Generator", "AsyncGenerator", "Iterator",
-        "AsyncIterator", "Callable", "Awaitable", "Coroutine", "JSONResponse",
-        "Response", "HTMLResponse", "PlainTextResponse", "RedirectResponse",
-        "StreamingResponse", "FileResponse",
+        "None",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "bytes",
+        "bytearray",
+        "list",
+        "dict",
+        "set",
+        "tuple",
+        "Any",
+        "Optional",
+        "List",
+        "Dict",
+        "Set",
+        "Tuple",
+        "Union",
+        "Type",
+        "ClassVar",
+        "Final",
+        "Literal",
+        "Generator",
+        "AsyncGenerator",
+        "Iterator",
+        "AsyncIterator",
+        "Callable",
+        "Awaitable",
+        "Coroutine",
+        "JSONResponse",
+        "Response",
+        "HTMLResponse",
+        "PlainTextResponse",
+        "RedirectResponse",
+        "StreamingResponse",
+        "FileResponse",
     ];
     if BUILTINS.contains(&name) {
         return None;
@@ -219,7 +264,12 @@ fn extract_handler_params(
     src: &[u8],
     func_node: Node<'_>,
     enc: crate::offset::Encoding,
-) -> (Vec<String>, Vec<Range>, Option<tower_lsp_server::ls_types::Position>, bool) {
+) -> (
+    Vec<String>,
+    Vec<Range>,
+    Option<tower_lsp_server::ls_types::Position>,
+    bool,
+) {
     let params_node = match func_node.child_by_field_name("parameters") {
         Some(p) => p,
         None => return (vec![], vec![], None, false),
@@ -241,13 +291,14 @@ fn extract_handler_params(
             }
             "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
                 if let Some(first) = child.child(0)
-                    && first.kind() == "identifier" {
-                        let name = node_text(src, first);
-                        if name != "self" && name != "cls" {
-                            names.push(name.to_owned());
-                            ranges.push(range_from_node(first, src, enc));
-                        }
+                    && first.kind() == "identifier"
+                {
+                    let name = node_text(src, first);
+                    if name != "self" && name != "cls" {
+                        names.push(name.to_owned());
+                        ranges.push(range_from_node(first, src, enc));
                     }
+                }
             }
             "list_splat_pattern" | "dictionary_splat_pattern" => {
                 has_splat = true;
@@ -259,7 +310,10 @@ fn extract_handler_params(
     // Position just before the closing `)` — insert point for new parameters.
     let end = params_node.end_position();
     let insert_pos = if end.column > 0 {
-        Some(tower_lsp_server::ls_types::Position::new(end.row as u32, (end.column - 1) as u32))
+        Some(tower_lsp_server::ls_types::Position::new(
+            end.row as u32,
+            (end.column - 1) as u32,
+        ))
     } else {
         None
     };
@@ -300,8 +354,7 @@ fn try_route_decorator(
     if method_name == "api_route" {
         let args = expr.child_by_field_name("arguments")?;
         let (path, path_range, path_quote_width) = extract_path_arg(src, args, consts, enc)?;
-        let methods = extract_methods_kwarg(src, args)
-            .unwrap_or_else(|| vec![Method::Get]);
+        let methods = extract_methods_kwarg(src, args).unwrap_or_else(|| vec![Method::Get]);
         let (response_model, response_model_range) =
             extract_kwarg_string_with_range(src, args, "response_model", enc);
         let dependencies = extract_dependencies_kwarg(src, args);
@@ -405,7 +458,8 @@ fn extract_assignment(
         "identifier" => node_text(src, callee),
         "attribute" => {
             // e.g. fastapi.FastAPI()
-            callee.child_by_field_name("attribute")
+            callee
+                .child_by_field_name("attribute")
                 .map(|n| node_text(src, n))
                 .unwrap_or("")
         }
@@ -419,12 +473,20 @@ fn extract_assignment(
         if let Some(app_args) = rhs.child_by_field_name("arguments") {
             extract_table_routes_kwarg(src, app_args, &var_name, consts, facts, enc);
         }
-        facts.apps.push(AppDecl { name: var_name, range });
+        facts.apps.push(AppDecl {
+            name: var_name,
+            range,
+        });
     } else if ROUTER_CTORS.contains(&callee_name) {
         let args = rhs.child_by_field_name("arguments").unwrap_or(rhs);
         let prefix = extract_prefix_kwarg(src, args, consts, "prefix");
         let tags = extract_string_list_kwarg(src, args, "tags");
-        facts.routers.push(RouterDecl { name: var_name, prefix, tags, range });
+        facts.routers.push(RouterDecl {
+            name: var_name,
+            prefix,
+            tags,
+            range,
+        });
     }
 }
 
@@ -479,9 +541,13 @@ fn extract_from_route_list(
             None => continue,
         };
         match func_name {
-            "Route" => facts.routes.extend(extract_route_entry(src, call_args, app_name, consts, enc)),
+            "Route" => facts
+                .routes
+                .extend(extract_route_entry(src, call_args, app_name, consts, enc)),
             "WebSocketRoute" => {
-                if let Some(r) = extract_websocket_route_entry(src, call_args, app_name, consts, enc) {
+                if let Some(r) =
+                    extract_websocket_route_entry(src, call_args, app_name, consts, enc)
+                {
                     facts.routes.push(r);
                 }
             }
@@ -607,24 +673,23 @@ fn extract_mount_entry(
     }
 
     // `app=` kwarg (positional arg 2 is also checked for compatibility).
-    let app_val = find_kwarg_node(src, args, "app")
-        .or_else(|| {
-            let mut pos = 0usize;
-            let mut cursor = args.walk();
-            for child in args.children(&mut cursor) {
-                match child.kind() {
-                    "," | "(" | ")" => {}
-                    "keyword_argument" | "dictionary_splat_argument" | "list_splat_argument" => break,
-                    _ => {
-                        if pos == 1 {
-                            return Some(child);
-                        }
-                        pos += 1;
+    let app_val = find_kwarg_node(src, args, "app").or_else(|| {
+        let mut pos = 0usize;
+        let mut cursor = args.walk();
+        for child in args.children(&mut cursor) {
+            match child.kind() {
+                "," | "(" | ")" => {}
+                "keyword_argument" | "dictionary_splat_argument" | "list_splat_argument" => break,
+                _ => {
+                    if pos == 1 {
+                        return Some(child);
                     }
+                    pos += 1;
                 }
             }
-            None
-        });
+        }
+        None
+    });
 
     let Some(app_val) = app_val else { return };
 
@@ -645,9 +710,13 @@ fn extract_mount_entry(
         }
         "call" => {
             // Terminal mount (StaticFiles, plain ASGI app, etc.)
-            let handler_name = mount_name
-                .clone()
-                .unwrap_or_else(|| node_text(src, app_val.child_by_field_name("function").unwrap_or(app_val)).to_owned());
+            let handler_name = mount_name.clone().unwrap_or_else(|| {
+                node_text(
+                    src,
+                    app_val.child_by_field_name("function").unwrap_or(app_val),
+                )
+                .to_owned()
+            });
             facts.routes.push(RouteFact {
                 handler_name,
                 handler_range: range_from_node(app_val, src, enc),
@@ -691,7 +760,11 @@ fn prepend_prefix(mount_prefix: &PrefixValue, route_path: &PrefixValue) -> Prefi
 }
 
 /// Returns the (name, range) of the second positional argument (the endpoint callable).
-fn endpoint_positional(src: &[u8], args: Node<'_>, enc: crate::offset::Encoding) -> Option<(String, Range)> {
+fn endpoint_positional(
+    src: &[u8],
+    args: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<(String, Range)> {
     let mut positional = 0usize;
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
@@ -779,7 +852,9 @@ fn extract_expression(
             let app_name = obj_node
                 .map(|n| node_text(src, n).to_owned())
                 .unwrap_or_default();
-            facts.routes.extend(extract_route_entry(src, args, &app_name, consts, enc));
+            facts
+                .routes
+                .extend(extract_route_entry(src, args, &app_name, consts, enc));
         }
         _ => {}
     }
@@ -830,7 +905,11 @@ fn string_quote_prefix_width(raw: &str) -> u32 {
     let s = raw.trim();
     let after_prefix = s.trim_start_matches(['f', 'r', 'b', 'u', 'F', 'R', 'B', 'U']);
     let prefix_len = s.len() - after_prefix.len();
-    let quote_len = if after_prefix.starts_with("\"\"\"") || after_prefix.starts_with("'''") { 3 } else { 1 };
+    let quote_len = if after_prefix.starts_with("\"\"\"") || after_prefix.starts_with("'''") {
+        3
+    } else {
+        1
+    };
     (prefix_len + quote_len) as u32
 }
 
@@ -910,7 +989,11 @@ fn extract_methods_kwarg(src: &[u8], args: Node<'_>) -> Option<Vec<Method>> {
             }
         }
     }
-    if methods.is_empty() { None } else { Some(methods) }
+    if methods.is_empty() {
+        None
+    } else {
+        Some(methods)
+    }
 }
 
 fn depends_arg_name<'a>(src: &'a [u8], node: Node<'_>) -> Option<String> {
@@ -919,7 +1002,11 @@ fn depends_arg_name<'a>(src: &'a [u8], node: Node<'_>) -> Option<String> {
         "attribute" => {
             let mut parts: Vec<&'a str> = Vec::new();
             collect_dotted_parts(src, node, &mut parts);
-            if parts.is_empty() { None } else { Some(parts.join(".")) }
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join("."))
+            }
         }
         "call" => {
             let func = node.child_by_field_name("function")?;
@@ -961,10 +1048,11 @@ fn extract_dependencies_kwarg(src: &[u8], args: Node<'_>) -> Vec<String> {
                 let mut cursor2 = arg_list.walk();
                 for sub in arg_list.children(&mut cursor2) {
                     if matches!(sub.kind(), "identifier" | "attribute" | "call")
-                        && let Some(name) = depends_arg_name(src, sub) {
-                            deps.push(name);
-                            break;
-                        }
+                        && let Some(name) = depends_arg_name(src, sub)
+                    {
+                        deps.push(name);
+                        break;
+                    }
                 }
             }
         }
@@ -1038,12 +1126,14 @@ fn string_value(src: &[u8], node: Node<'_>) -> Option<String> {
     }
 }
 
-
 fn is_fstring(s: &str) -> bool {
     let s = s.trim();
-    s.starts_with('f') || s.starts_with('F')
-        || s.starts_with("rf") || s.starts_with("fr")
-        || s.starts_with("RF") || s.starts_with("FR")
+    s.starts_with('f')
+        || s.starts_with('F')
+        || s.starts_with("rf")
+        || s.starts_with("fr")
+        || s.starts_with("RF")
+        || s.starts_with("FR")
 }
 
 fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
@@ -1224,23 +1314,34 @@ def create_app(debug: bool = False) -> FastAPI:
 app = create_app()
 "#);
         // AppDecl inside factory body
-        assert!(facts.apps.iter().any(|a| a.name == "app"),
-            "AppDecl not found; apps: {:?}", facts.apps.iter().map(|a| &a.name).collect::<Vec<_>>());
+        assert!(
+            facts.apps.iter().any(|a| a.name == "app"),
+            "AppDecl not found; apps: {:?}",
+            facts.apps.iter().map(|a| &a.name).collect::<Vec<_>>()
+        );
         // RouterDecl with prefix
-        assert!(facts.routers.iter().any(|r| r.name == "router"),
-            "RouterDecl 'router' not found");
+        assert!(
+            facts.routers.iter().any(|r| r.name == "router"),
+            "RouterDecl 'router' not found"
+        );
         assert!(matches!(
             &facts.routers.iter().find(|r| r.name == "router").unwrap().prefix,
             PrefixValue::Literal(p) if p == "/items"
         ));
         // Routes extracted from decorated defs inside factory
-        assert!(facts.routes.iter().any(|r| r.handler_name == "list_items"),
-            "list_items route not found");
-        assert!(facts.routes.iter().any(|r| r.handler_name == "get_item"),
-            "get_item route not found");
+        assert!(
+            facts.routes.iter().any(|r| r.handler_name == "list_items"),
+            "list_items route not found"
+        );
+        assert!(
+            facts.routes.iter().any(|r| r.handler_name == "get_item"),
+            "get_item route not found"
+        );
         // include_router call
-        assert!(facts.includes.iter().any(|i| i.app_name == "app"),
-            "include_router call not found");
+        assert!(
+            facts.includes.iter().any(|i| i.app_name == "app"),
+            "include_router call not found"
+        );
     }
 
     #[test]
@@ -1256,10 +1357,14 @@ def create_app():
 "#);
         assert_eq!(facts.routers.len(), 1);
         assert_eq!(facts.routers[0].name, "router");
-        assert!(matches!(
-            &facts.routers[0].prefix,
-            PrefixValue::Literal(p) if p == "/v2"
-        ), "expected /v2, got {:?}", facts.routers[0].prefix);
+        assert!(
+            matches!(
+                &facts.routers[0].prefix,
+                PrefixValue::Literal(p) if p == "/v2"
+            ),
+            "expected /v2, got {:?}",
+            facts.routers[0].prefix
+        );
     }
 
     // ── REQ-STAR-01: table-style Route / WebSocketRoute extraction ────────────
@@ -1327,7 +1432,12 @@ app = Starlette(routes=[
 "#);
         assert_eq!(facts.routes.len(), 2);
         assert!(facts.routes.iter().any(|r| r.methods == vec![Method::Get]));
-        assert!(facts.routes.iter().any(|r| r.methods == vec![Method::WebSocket]));
+        assert!(
+            facts
+                .routes
+                .iter()
+                .any(|r| r.methods == vec![Method::WebSocket])
+        );
     }
 
     #[test]
@@ -1400,7 +1510,10 @@ def nothing() -> None:
     pass
 "#);
         assert_eq!(facts.routes.len(), 1);
-        assert_eq!(facts.routes[0].return_annotation, None, "None should be suppressed");
+        assert_eq!(
+            facts.routes[0].return_annotation, None,
+            "None should be suppressed"
+        );
     }
 
     #[test]
@@ -1415,7 +1528,10 @@ def get_json() -> JSONResponse:
     pass
 "#);
         assert_eq!(facts.routes.len(), 1);
-        assert_eq!(facts.routes[0].return_annotation, None, "JSONResponse should be suppressed");
+        assert_eq!(
+            facts.routes[0].return_annotation, None,
+            "JSONResponse should be suppressed"
+        );
     }
 
     #[test]
@@ -1429,7 +1545,10 @@ def list_books() -> list[Book]:
     pass
 "#);
         assert_eq!(facts.routes.len(), 1);
-        assert_eq!(facts.routes[0].return_annotation, None, "subscript should be suppressed");
+        assert_eq!(
+            facts.routes[0].return_annotation, None,
+            "subscript should be suppressed"
+        );
     }
 
     #[test]
@@ -1443,7 +1562,10 @@ def get_book() -> schemas.Book:
     pass
 "#);
         assert_eq!(facts.routes.len(), 1);
-        assert_eq!(facts.routes[0].return_annotation, None, "attribute access should be suppressed");
+        assert_eq!(
+            facts.routes[0].return_annotation, None,
+            "attribute access should be suppressed"
+        );
     }
 
     #[test]
@@ -1457,7 +1579,10 @@ def list_books():
     pass
 "#);
         assert_eq!(facts.routes.len(), 1);
-        assert_eq!(facts.routes[0].return_annotation, None, "no annotation should be None");
+        assert_eq!(
+            facts.routes[0].return_annotation, None,
+            "no annotation should be None"
+        );
     }
 
     // ── REQ-STAR-01 / REQ-STAR-04: Mount handling ─────────────────────────────
@@ -1476,11 +1601,25 @@ app = Starlette(routes=[
 ])
 "#);
         assert_eq!(facts.routes.len(), 2);
-        let paths: Vec<&str> = facts.routes.iter()
-            .filter_map(|r| if let PrefixValue::Literal(p) = &r.path { Some(p.as_str()) } else { None })
+        let paths: Vec<&str> = facts
+            .routes
+            .iter()
+            .filter_map(|r| {
+                if let PrefixValue::Literal(p) = &r.path {
+                    Some(p.as_str())
+                } else {
+                    None
+                }
+            })
             .collect();
-        assert!(paths.contains(&"/api/books"), "nested route should be /api/books");
-        assert!(paths.contains(&"/api/users"), "nested route should be /api/users");
+        assert!(
+            paths.contains(&"/api/books"),
+            "nested route should be /api/books"
+        );
+        assert!(
+            paths.contains(&"/api/users"),
+            "nested route should be /api/users"
+        );
     }
 
     #[test]
@@ -1511,7 +1650,11 @@ app = Starlette(routes=[
     Mount("/sub", app=subapp),
 ])
 "#);
-        assert_eq!(facts.routes.len(), 0, "cross-app mount should produce include, not route");
+        assert_eq!(
+            facts.routes.len(),
+            0,
+            "cross-app mount should produce include, not route"
+        );
         assert_eq!(facts.includes.len(), 1);
         assert_eq!(facts.includes[0].target, "subapp");
         assert!(matches!(&facts.includes[0].prefix, PrefixValue::Literal(p) if p == "/sub"));
@@ -1532,7 +1675,8 @@ app = Starlette(routes=[
         assert_eq!(facts.routes[0].methods, vec![Method::Mount]);
         assert!(
             matches!(&facts.routes[0].path, PrefixValue::Literal(p) if p == "/static"),
-            "path should be /static, got {:?}", facts.routes[0].path
+            "path should be /static, got {:?}",
+            facts.routes[0].path
         );
         assert_eq!(facts.routes[0].route_name, Some("static".to_owned()));
     }
@@ -1550,7 +1694,10 @@ app = Starlette(routes=[
 "#);
         assert_eq!(facts.routes.len(), 1);
         assert_eq!(facts.routes[0].methods, vec![Method::Mount]);
-        assert_eq!(facts.routes[0].route_name, None, "unnamed mount should have no route_name");
+        assert_eq!(
+            facts.routes[0].route_name, None,
+            "unnamed mount should have no route_name"
+        );
     }
 
     #[test]
@@ -1580,7 +1727,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
         assert_eq!(facts.routes[0].methods, vec![Method::Mount]);
         assert!(
             matches!(&facts.routes[0].path, PrefixValue::Literal(p) if p == "/static"),
-            "got {:?}", facts.routes[0].path
+            "got {:?}",
+            facts.routes[0].path
         );
         assert_eq!(facts.routes[0].route_name, Some("static".to_owned()));
     }
@@ -1602,7 +1750,8 @@ app = Starlette(routes=[
         assert_eq!(facts.routes.len(), 1);
         assert!(
             matches!(&facts.routes[0].path, PrefixValue::Literal(p) if p == "/outer/inner/item"),
-            "double-mount prefix should produce /outer/inner/item, got {:?}", facts.routes[0].path
+            "double-mount prefix should produce /outer/inner/item, got {:?}",
+            facts.routes[0].path
         );
     }
 
@@ -1652,15 +1801,31 @@ async def pca_import_view(
 ):
     pass
 "#);
-        assert_eq!(facts.routes.len(), 2, "both routes must be extracted; got {:?}",
-            facts.routes.iter().map(|r| &r.handler_name).collect::<Vec<_>>());
-        let names: Vec<_> = facts.routes.iter().map(|r| r.handler_name.as_str()).collect();
+        assert_eq!(
+            facts.routes.len(),
+            2,
+            "both routes must be extracted; got {:?}",
+            facts
+                .routes
+                .iter()
+                .map(|r| &r.handler_name)
+                .collect::<Vec<_>>()
+        );
+        let names: Vec<_> = facts
+            .routes
+            .iter()
+            .map(|r| r.handler_name.as_str())
+            .collect();
         assert!(names.contains(&"view2"), "view2 must be in routes");
-        assert!(names.contains(&"pca_import_view"), "pca_import_view must be in routes");
+        assert!(
+            names.contains(&"pca_import_view"),
+            "pca_import_view must be in routes"
+        );
         for route in &facts.routes {
             assert!(
                 matches!(&route.path, crate::state::PrefixValue::Literal(p) if p == "/import-from-pca"),
-                "route {} path should be /import-from-pca", route.handler_name,
+                "route {} path should be /import-from-pca",
+                route.handler_name,
             );
         }
     }
@@ -1712,7 +1877,9 @@ app = FastAPI()
 def list_items(): pass
 "#);
         assert_eq!(facts.routes.len(), 1);
-        assert_eq!(facts.routes[0].dependencies, vec!["verify_token", "auth.rate_limit", "get_db"]);
+        assert_eq!(
+            facts.routes[0].dependencies,
+            vec!["verify_token", "auth.rate_limit", "get_db"]
+        );
     }
-
 }

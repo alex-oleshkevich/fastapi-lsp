@@ -22,9 +22,7 @@ fn walk(
 ) {
     let child_func: Option<(String, NodeId)> = match node.kind() {
         // A `decorated_definition` wraps the inner `function_definition`; handle once here.
-        "decorated_definition" => {
-            extract_func_def(src, node, facts, enc)
-        }
+        "decorated_definition" => extract_func_def(src, node, facts, enc),
         "function_definition" => {
             // Skip when already handled as part of a decorated_definition.
             if node.parent().map(|p| p.kind()) != Some("decorated_definition") {
@@ -39,7 +37,9 @@ fn walk(
                 dep_ref.caller_node_id = current_func.as_ref().map(|(_, id)| id.clone());
                 facts.dep_refs.push(dep_ref);
             }
-            facts.override_sites.extend(extract_override_update(src, node, enc));
+            facts
+                .override_sites
+                .extend(extract_override_update(src, node, enc));
             current_func.clone()
         }
         "assignment" => {
@@ -77,11 +77,19 @@ fn extract_func_def(
     let name_node = func_node.child_by_field_name("name")?;
     let name = node_text(src, name_node).to_owned();
     let range = range_from_node(name_node, src, enc);
-    let node_id = NodeId { uri: facts.uri.clone(), range };
+    let node_id = NodeId {
+        uri: facts.uri.clone(),
+        range,
+    };
     let has_yield = body_has_yield(func_node);
     let (param_names, _) = extract_handler_params(src, func_node);
 
-    facts.dep_defs.push(DepDef { name: name.clone(), node_id: node_id.clone(), has_yield, param_names });
+    facts.dep_defs.push(DepDef {
+        name: name.clone(),
+        node_id: node_id.clone(),
+        has_yield,
+        param_names,
+    });
     Some((name, node_id))
 }
 
@@ -107,12 +115,13 @@ fn extract_handler_params(src: &[u8], func_node: Node<'_>) -> (Vec<String>, bool
             }
             "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
                 if let Some(first) = child.child(0)
-                    && first.kind() == "identifier" {
-                        let name = node_text(src, first);
-                        if name != "self" && name != "cls" {
-                            names.push(name.to_owned());
-                        }
+                    && first.kind() == "identifier"
+                {
+                    let name = node_text(src, first);
+                    if name != "self" && name != "cls" {
+                        names.push(name.to_owned());
                     }
+                }
             }
             "list_splat_pattern" | "dictionary_splat_pattern" => {
                 has_splat = true;
@@ -150,7 +159,11 @@ fn node_contains_yield(node: Node<'_>) -> bool {
 
 // ── Depends() call sites ──────────────────────────────────────────────────────
 
-fn extract_depends_call(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<DepRef> {
+fn extract_depends_call(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<DepRef> {
     let func = node.child_by_field_name("function")?;
 
     let func_name = match func.kind() {
@@ -189,7 +202,14 @@ fn extract_depends_call(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding
         },
     };
 
-    Some(DepRef { name, range, is_called, callee_range, containing_func: None, caller_node_id: None })
+    Some(DepRef {
+        name,
+        range,
+        is_called,
+        callee_range,
+        containing_func: None,
+        caller_node_id: None,
+    })
 }
 
 fn first_positional_arg(args: Node<'_>) -> Option<Node<'_>> {
@@ -227,7 +247,11 @@ fn collect_dotted<'a>(src: &'a [u8], node: Node<'_>, parts: &mut Vec<&'a str>) {
 
 // ── dependency_overrides ──────────────────────────────────────────────────────
 
-fn extract_override_subscript(src: &[u8], node: Node<'_>, enc: crate::offset::Encoding) -> Option<OverrideSite> {
+fn extract_override_subscript(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Option<OverrideSite> {
     // Match: <expr>.dependency_overrides[<key>] = <value>
     let lhs = node.child_by_field_name("left")?;
     if lhs.kind() != "subscript" {
@@ -250,10 +274,17 @@ fn extract_override_subscript(src: &[u8], node: Node<'_>, enc: crate::offset::En
         "attribute" => dotted_name(src, key),
         _ => return None,
     };
-    Some(OverrideSite { name, range: range_from_node(key, src, enc) })
+    Some(OverrideSite {
+        name,
+        range: range_from_node(key, src, enc),
+    })
 }
 
-fn extract_override_update(src: &[u8], call_node: Node<'_>, enc: crate::offset::Encoding) -> Vec<OverrideSite> {
+fn extract_override_update(
+    src: &[u8],
+    call_node: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Vec<OverrideSite> {
     // Match: <expr>.dependency_overrides.update({<key>: <val>, ...})
     let func = match call_node.child_by_field_name("function") {
         Some(f) => f,
@@ -296,14 +327,18 @@ fn extract_override_update(src: &[u8], call_node: Node<'_>, enc: crate::offset::
             let mut dc = arg.walk();
             for pair in arg.children(&mut dc) {
                 if pair.kind() == "pair"
-                    && let Some(key) = pair.child_by_field_name("key") {
-                        let name = match key.kind() {
-                            "identifier" => node_text(src, key).to_owned(),
-                            "attribute" => dotted_name(src, key),
-                            _ => continue,
-                        };
-                        sites.push(OverrideSite { name, range: range_from_node(key, src, enc) });
-                    }
+                    && let Some(key) = pair.child_by_field_name("key")
+                {
+                    let name = match key.kind() {
+                        "identifier" => node_text(src, key).to_owned(),
+                        "attribute" => dotted_name(src, key),
+                        _ => continue,
+                    };
+                    sites.push(OverrideSite {
+                        name,
+                        range: range_from_node(key, src, enc),
+                    });
+                }
             }
         }
     }
@@ -439,7 +474,10 @@ mod tests {
     fn depends_containing_func_captured() {
         let facts = facts_for("def endpoint(db = Depends(get_db)): pass");
         assert_eq!(facts.dep_refs.len(), 1);
-        assert_eq!(facts.dep_refs[0].containing_func.as_deref(), Some("endpoint"));
+        assert_eq!(
+            facts.dep_refs[0].containing_func.as_deref(),
+            Some("endpoint")
+        );
     }
 
     #[test]
