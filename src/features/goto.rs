@@ -84,6 +84,30 @@ pub fn references(
                 }
             }
         }
+        // Also find usages via type aliases (`Alias = Annotated[T, Depends(this_dep)]`).
+        // Those have no dep_ref — the alias handler params are in plain_typed_params instead.
+        let alias_names: std::collections::HashSet<String> = state
+            .file_facts
+            .iter()
+            .flat_map(|e| {
+                e.value()
+                    .dep_type_aliases
+                    .iter()
+                    .filter(|(_, fn_name)| fn_name.as_str() == dep_name)
+                    .map(|(alias, _)| alias.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        if !alias_names.is_empty() {
+            for fe in state.file_facts.iter() {
+                let fv = fe.value();
+                for param in &fv.plain_typed_params {
+                    if alias_names.contains(&param.type_name) {
+                        locs.push(LspLocation { uri: fv.uri.clone(), range: param.annotation_range });
+                    }
+                }
+            }
+        }
         // Include override sites from the dep graph (REQ-DI-05)
         if let Some(sites) = linked.dep_graph.override_sites.get(&dep_node_id) {
             for site in sites {
@@ -571,5 +595,50 @@ mod tests {
         assert!(ranges.contains(&override_range), "missing override site location");
         let override_loc = locs.iter().find(|l| l.range == override_range).unwrap();
         assert_eq!(override_loc.uri, uri_test);
+    }
+
+    #[test]
+    fn references_on_dep_def_includes_type_alias_usages() {
+        // `CurrentPrivateContract = Annotated[T, Depends(_fetch_private_contract)]`
+        // handler param `contract: CurrentPrivateContract` is a plain_typed_param, not a dep_ref.
+        // references() must still include the param annotation range.
+        let uri_deps: Uri = "file:///app/deps.py".parse().unwrap();
+        let uri_handler: Uri = "file:///app/routes.py".parse().unwrap();
+
+        let def_range = Range { start: Position::new(3, 4), end: Position::new(3, 28) };
+        let alias_param_range = Range { start: Position::new(10, 15), end: Position::new(10, 37) };
+
+        let mut dep_facts = FileFacts::new(uri_deps.clone());
+        dep_facts.dep_defs.push(DepDef {
+            name: "_fetch_private_contract".to_owned(),
+            node_id: NodeId { uri: uri_deps.clone(), range: def_range },
+            has_yield: false,
+            param_names: vec![],
+        });
+        dep_facts.dep_type_aliases.insert(
+            "CurrentPrivateContract".to_owned(),
+            "_fetch_private_contract".to_owned(),
+        );
+
+        let mut handler_facts = FileFacts::new(uri_handler.clone());
+        handler_facts.plain_typed_params.push(crate::state::PlainTypedParam {
+            containing_func: "get_contract".to_owned(),
+            param_name: "contract".to_owned(),
+            type_name: "CurrentPrivateContract".to_owned(),
+            annotation_range: alias_param_range,
+        });
+
+        let state = crate::state::WorkspaceState::new(
+            ResolvedConfig::default_for_root(std::path::PathBuf::from("/tmp")),
+        );
+        state.file_facts.insert(uri_deps.clone(), dep_facts);
+        state.file_facts.insert(uri_handler.clone(), handler_facts);
+        state.linked.store(Arc::new(Linked::default()));
+
+        let locs = references(&state, &uri_deps, Position::new(3, 10), false);
+        assert!(
+            locs.iter().any(|l| l.range == alias_param_range && l.uri == uri_handler),
+            "alias usage in plain_typed_param must appear in references; got: {locs:?}"
+        );
     }
 }

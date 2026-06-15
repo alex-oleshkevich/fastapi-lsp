@@ -1,8 +1,9 @@
 # fastapi-lsp
 
-A language server that understands FastAPI and Starlette the way a framework expert does — route resolution through router prefixes, the `Depends()` graph, `url_for` reverse routing, Jinja template links, test-to-route navigation, and env/settings intelligence. One Rust binary, any LSP-capable editor.
+[![CI](https://github.com/alex-oleshkevich/fastapi-lsp/actions/workflows/ci.yml/badge.svg)](https://github.com/alex-oleshkevich/fastapi-lsp/actions/workflows/ci.yml)
+[![Release](https://github.com/alex-oleshkevich/fastapi-lsp/actions/workflows/release.yml/badge.svg)](https://github.com/alex-oleshkevich/fastapi-lsp/releases)
 
-> **Status: specification phase.** The design lives in [`specs/`](specs/index.md); implementation tracks the [roadmap](specs/roadmap.md).
+A language server that understands FastAPI and Starlette the way a framework expert does — route resolution through router prefixes, the `Depends()` graph, `url_for` reverse routing, Jinja template links, test-to-route navigation, and env/settings intelligence. One Rust binary, any LSP-capable editor.
 
 ## What it does
 

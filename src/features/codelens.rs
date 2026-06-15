@@ -43,13 +43,33 @@ pub fn code_lenses(state: &WorkspaceState, uri: &Uri) -> Vec<CodeLens> {
     // Each map: name → Vec<(uri_string, range)> — gives both count and locations for
     // the `editor.showReferences` command arguments.
 
-    // dep_name → all Depends() call-site locations across the workspace.
+    // alias_name → dep_fn_name, workspace-wide.
+    // Built before dep_usage_locs so we can extend it with alias-chain usages in one pass.
+    let alias_to_dep: std::collections::HashMap<String, String> = state
+        .file_facts
+        .iter()
+        .flat_map(|e| {
+            e.value()
+                .dep_type_aliases
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    // dep_name → all usage locations across the workspace: direct Depends() call sites
+    // plus handler params typed with a dep type alias (e.g. `db: DbSession`).
     let dep_usage_locs: std::collections::HashMap<String, Vec<(String, Range)>> = {
         let mut map: std::collections::HashMap<String, Vec<(String, Range)>> = std::collections::HashMap::new();
         for entry in state.file_facts.iter() {
             let uri_str = entry.key().as_str().to_owned();
             for dep_ref in &entry.value().dep_refs {
                 map.entry(dep_ref.name.clone()).or_default().push((uri_str.clone(), dep_ref.range));
+            }
+            for param in &entry.value().plain_typed_params {
+                if let Some(dep_fn) = alias_to_dep.get(&param.type_name) {
+                    map.entry(dep_fn.clone()).or_default().push((uri_str.clone(), param.annotation_range));
+                }
             }
         }
         map

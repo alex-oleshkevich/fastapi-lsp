@@ -644,15 +644,31 @@ fn route_param_checks(
         let mut bound: std::collections::HashSet<String> =
             record.handler_params.iter().cloned().collect();
 
+        // sig_deps_map and all_plain_typed are keyed by the Python function name
+        // (containing_func), NOT by the route name kwarg. When `name="foo.bar"` is
+        // set on a decorator, record.name diverges from the Python function name, so
+        // we must extract the function name from the RouteId instead.
+        // RouteId format: "{uri}:{handler_func_name}:{METHOD}"
+        let handler_func_name: &str = {
+            let id_str = record.id.0.as_str();
+            let uri_str = record.handler.uri.as_str();
+            if let Some(rest) = id_str.strip_prefix(uri_str) {
+                let trimmed = rest.trim_start_matches(':');
+                if let Some(pos) = trimmed.rfind(':') { &trimmed[..pos] } else { trimmed }
+            } else {
+                &record.name
+            }
+        };
+
         let mut queue: std::collections::VecDeque<String> =
             record.dependencies.iter().cloned().collect();
         // Add deps from handler function-signature Depends() (not only dependencies=[] kwarg)
-        if let Some(sig_deps) = sig_deps_map.get(&record.name) {
+        if let Some(sig_deps) = sig_deps_map.get(handler_func_name) {
             queue.extend(sig_deps.iter().cloned());
         }
         // Add deps from plain-typed params whose type is a known dep type alias.
         // e.g. `project: CurrentProject` where `CurrentProject = Annotated[T, Depends(fetch_project)]`
-        if let Some(plain_types) = all_plain_typed.get(&record.name) {
+        if let Some(plain_types) = all_plain_typed.get(handler_func_name) {
             for type_name in plain_types {
                 if let Some(dep_fn) = all_dep_type_aliases.get(type_name) {
                     queue.push_back(dep_fn.clone());
@@ -1720,6 +1736,77 @@ mod tests {
             .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
             .collect();
         assert!(param_diags.is_empty(), "dep binding suppresses param-missing-arg");
+    }
+
+    #[test]
+    fn param_bound_via_type_alias_dep_with_custom_route_name() {
+        // Regression: when a route has `name="api.contracts.create"`, record.name differs from
+        // the Python function name. The BFS must look up sig_deps_map and all_plain_typed by
+        // the handler function name, not the route name kwarg.
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(std::path::PathBuf::from(".")));
+        let uri: Uri = "file:///router.py".parse().unwrap();
+
+        let handler_func = "create_contract_view";
+        let route_name = "api.contracts.create";
+
+        let mut facts = FileFacts::new(uri.clone());
+        // dep_def: fetch_contract takes contract_id
+        facts.dep_defs.push(crate::state::DepDef {
+            name: "fetch_contract".to_owned(),
+            node_id: crate::state::NodeId { uri: uri.clone(), range: Range::default() },
+            has_yield: false,
+            param_names: vec!["dbsession".to_owned(), "contract_id".to_owned()],
+        });
+        // dep_type_alias: CurrentContract = Annotated[..., Depends(fetch_contract)]
+        facts.dep_type_aliases.insert("CurrentContract".to_owned(), "fetch_contract".to_owned());
+        // plain_typed_param: create_contract_view has `contract: CurrentContract`
+        facts.plain_typed_params.push(crate::state::PlainTypedParam {
+            containing_func: handler_func.to_owned(),
+            param_name: "contract".to_owned(),
+            type_name: "CurrentContract".to_owned(),
+            annotation_range: Range::default(),
+        });
+        state.file_facts.insert(uri.clone(), facts);
+
+        // RouteId must use the real handler func name so extraction works
+        let id = RouteId(format!("{}:{}:POST", uri.as_str(), handler_func));
+        let record = RouteRecord {
+            id: id.clone(),
+            ordinal: 0,
+            name: route_name.to_owned(), // custom name kwarg — differs from handler func name
+            method: Method::Post,
+            resolved_path: ResolvedPath::Resolved("/contracts/{contract_id}".to_owned()),
+            decorator_path: "/contracts/{contract_id}".to_owned(),
+            chain: vec![],
+            handler: StateLocation { uri: uri.clone(), range: Range::default() },
+            path_params: vec![PathParam { name: "contract_id".to_owned(), converter: PathConverter::Str }],
+            response_model: None,
+            response_model_range: None,
+            return_annotation: None,
+            dependencies: vec![],
+            middleware: vec![],
+            path_range: None,
+            path_quote_width: None,
+            handler_params: vec!["dbsession".to_owned(), "contract".to_owned()],
+            handler_param_ranges: vec![],
+            params_insert_pos: None,
+            handler_has_splat_args: false,
+            handler_params_known: true,
+        };
+        let mut linked = Linked::default();
+        linked.route_index.insert(id, vec![record]);
+        linked.dep_params.insert("fetch_contract".to_owned(), vec!["dbsession".to_owned(), "contract_id".to_owned()]);
+        state.linked.store(Arc::new(linked));
+
+        let diags = compute(&state, &uri, &[]);
+        let param_diags: Vec<_> = diags.iter()
+            .filter(|d| d.code == Some(NumberOrString::String("route/param-missing-arg".to_owned())))
+            .collect();
+        assert!(
+            param_diags.is_empty(),
+            "contract_id bound via type alias dep must not produce param-missing-arg even with custom route name; got {:?}",
+            param_diags,
+        );
     }
 
     #[test]

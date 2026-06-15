@@ -204,6 +204,13 @@ fn build_dep_caches(state: &WorkspaceState) -> (std::collections::HashSet<String
                 proven.insert(dep_ref.name.clone());
             }
         }
+        // Deps referenced only inside a type alias (e.g. `Alias = Annotated[T, Depends(fn)]`)
+        // have no dep_refs, but are genuine deps — mark them proven via the alias map.
+        for fn_name in facts.dep_type_aliases.values() {
+            if !fn_name.is_empty() {
+                proven.insert(fn_name.clone());
+            }
+        }
     }
     (proven, dep_params)
 }

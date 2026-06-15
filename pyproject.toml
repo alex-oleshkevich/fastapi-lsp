@@ -1,6 +1,6 @@
 [project]
 name = "fastapi-lsp"
-version = "0.1.0"
+version = "0.0.1"
 description = "Language server for FastAPI and Starlette"
 readme = "README.md"
 license = { text = "MIT" }

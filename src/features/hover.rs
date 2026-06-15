@@ -100,11 +100,26 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
 
     // Routes that use this dep — either via decorator `dependencies=[Depends(dep)]`
     // or via a parameter annotation `def handler(x = Depends(dep))`.
-    let route_handler_names: std::collections::HashSet<String> = linked
+    //
+    // Keyed by handler *function* name (extracted from RouteId) so the lookup works even when
+    // the route was given an explicit `name=` kwarg that differs from the function name.
+    let handler_func_to_display: std::collections::HashMap<String, String> = linked
         .route_index
         .values()
         .flat_map(|records| records.iter())
-        .map(|r| r.name.clone())
+        .map(|r| {
+            let id_str = r.id.0.as_str();
+            let uri_str = r.handler.uri.as_str();
+            let func_name = id_str
+                .strip_prefix(uri_str)
+                .and_then(|rest| {
+                    let rest = rest.trim_start_matches(':');
+                    let pos = rest.rfind(':')?;
+                    Some(rest[..pos].to_owned())
+                })
+                .unwrap_or_else(|| r.name.clone());
+            (func_name, r.name.clone())
+        })
         .collect();
 
     let mut using_route_set: std::collections::HashSet<String> = linked
@@ -117,11 +132,39 @@ pub fn dep_hover(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Hov
 
     for fe in state.file_facts.iter() {
         for dep_ref in &fe.dep_refs {
-            if dep_ref.name == dep.name
-                && let Some(func) = &dep_ref.containing_func
-                    && route_handler_names.contains(func.as_str()) {
-                        using_route_set.insert(func.clone());
+            if dep_ref.name == dep.name {
+                if let Some(func) = &dep_ref.containing_func {
+                    if let Some(display) = handler_func_to_display.get(func.as_str()) {
+                        using_route_set.insert(display.clone());
                     }
+                }
+            }
+        }
+    }
+
+    // Deps used via a type alias (e.g. `CurrentPrivateContract = Annotated[T, Depends(fn)]`)
+    // have no dep_ref at all — track them through dep_type_aliases → plain_typed_params.
+    let alias_names: std::collections::HashSet<String> = state
+        .file_facts
+        .iter()
+        .flat_map(|e| {
+            e.value()
+                .dep_type_aliases
+                .iter()
+                .filter(|(_, fn_name)| fn_name.as_str() == dep.name)
+                .map(|(alias, _)| alias.clone())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    if !alias_names.is_empty() {
+        for fe in state.file_facts.iter() {
+            for param in &fe.plain_typed_params {
+                if alias_names.contains(&param.type_name) {
+                    if let Some(display) = handler_func_to_display.get(param.containing_func.as_str()) {
+                        using_route_set.insert(display.clone());
+                    }
+                }
+            }
         }
     }
 
@@ -580,6 +623,135 @@ mod tests {
         };
         assert!(md.contains("used by 1 route"), "parameter-level dep should count; got: {md}");
         assert!(md.contains("`read_items` (route)"), "should list the route using the dep");
+    }
+
+    #[test]
+    fn dep_hover_counts_usage_via_type_alias() {
+        // _fetch_private_contract is only referenced inside a type alias:
+        //   CurrentPrivateContract = Annotated[PrivateContract, Depends(_fetch_private_contract)]
+        // Routes use it as `contract: CurrentPrivateContract` — a plain_typed_param, not a dep_ref.
+        // The hover must say "used by 1 route", not "unused".
+        let uri: tower_lsp_server::ls_types::Uri = "file:///app/deps.py".parse().unwrap();
+        let route_uri: tower_lsp_server::ls_types::Uri = "file:///app/routes.py".parse().unwrap();
+        let def_range = Range { start: Position::new(3, 4), end: Position::new(3, 28) };
+
+        let mut facts = FileFacts::new(uri.clone());
+        facts.dep_defs.push(DepDef {
+            name: "_fetch_private_contract".to_owned(),
+            node_id: NodeId { uri: uri.clone(), range: def_range },
+            has_yield: false,
+            param_names: vec![],
+        });
+        facts.dep_type_aliases.insert(
+            "CurrentPrivateContract".to_owned(),
+            "_fetch_private_contract".to_owned(),
+        );
+
+        let mut route_facts = FileFacts::new(route_uri.clone());
+        route_facts.plain_typed_params.push(crate::state::PlainTypedParam {
+            containing_func: "get_contract".to_owned(),
+            param_name: "contract".to_owned(),
+            type_name: "CurrentPrivateContract".to_owned(),
+            annotation_range: Range::default(),
+        });
+
+        let state = make_state();
+        state.file_facts.insert(uri.clone(), facts);
+        state.file_facts.insert(route_uri.clone(), route_facts);
+
+        let (id, record) = make_route("get_contract", route_uri.as_str(), vec![]);
+        let mut linked = Linked::default();
+        linked.route_index.insert(id, vec![record]);
+        state.linked.store(Arc::new(linked));
+
+        let hover = dep_hover(&state, &uri, Position::new(3, 10)).unwrap();
+        let md = match hover.contents {
+            tower_lsp_server::ls_types::HoverContents::Markup(m) => m.value,
+            _ => panic!("expected markup"),
+        };
+        assert!(
+            md.contains("used by 1 route"),
+            "dep used via type alias must not show 'unused'; got: {md}"
+        );
+        assert!(md.contains("`get_contract` (route)"), "should list the route; got: {md}");
+    }
+
+    #[test]
+    fn dep_hover_counts_alias_usage_for_route_with_custom_name() {
+        // Route has an explicit `name=` kwarg different from the handler function name.
+        // The alias param's containing_func is the Python function name, while RouteRecord.name
+        // is the custom route name. handler_func_to_display must map by function name so the
+        // usage is found and displayed using the route name.
+        let uri: tower_lsp_server::ls_types::Uri = "file:///app/deps.py".parse().unwrap();
+        let route_uri: tower_lsp_server::ls_types::Uri = "file:///app/routes.py".parse().unwrap();
+        let def_range = Range { start: Position::new(3, 4), end: Position::new(3, 28) };
+
+        let mut facts = FileFacts::new(uri.clone());
+        facts.dep_defs.push(DepDef {
+            name: "_fetch_contract".to_owned(),
+            node_id: NodeId { uri: uri.clone(), range: def_range },
+            has_yield: false,
+            param_names: vec![],
+        });
+        facts
+            .dep_type_aliases
+            .insert("CurrentContract".to_owned(), "_fetch_contract".to_owned());
+
+        let mut route_facts = FileFacts::new(route_uri.clone());
+        route_facts.plain_typed_params.push(crate::state::PlainTypedParam {
+            containing_func: "upload_contract_view".to_owned(),
+            param_name: "contract".to_owned(),
+            type_name: "CurrentContract".to_owned(),
+            annotation_range: Range::default(),
+        });
+
+        // RouteId in canonical format: "{uri}:{func}:{METHOD}"
+        let id = RouteId(format!("{}:upload_contract_view:POST", route_uri.as_str()));
+        let record = RouteRecord {
+            id: id.clone(),
+            ordinal: 0,
+            name: "contracts.upload".to_owned(), // differs from function name
+            method: Method::Post,
+            resolved_path: ResolvedPath::Resolved("/contracts/upload".to_owned()),
+            decorator_path: "/contracts/upload".to_owned(),
+            chain: vec![],
+            handler: StateLocation { uri: route_uri.clone(), range: Range::default() },
+            path_params: vec![],
+            response_model: None,
+            response_model_range: None,
+            return_annotation: None,
+            dependencies: vec![],
+            middleware: vec![],
+            path_range: None,
+            path_quote_width: None,
+            handler_params: vec![],
+            handler_param_ranges: vec![],
+            params_insert_pos: None,
+            handler_has_splat_args: false,
+            handler_params_known: false,
+        };
+
+        let state = make_state();
+        state.file_facts.insert(uri.clone(), facts);
+        state.file_facts.insert(route_uri.clone(), route_facts);
+
+        let mut linked = Linked::default();
+        linked.route_index.insert(id, vec![record]);
+        state.linked.store(Arc::new(linked));
+
+        let hover = dep_hover(&state, &uri, Position::new(3, 10)).unwrap();
+        let md = match hover.contents {
+            tower_lsp_server::ls_types::HoverContents::Markup(m) => m.value,
+            _ => panic!("expected markup"),
+        };
+        assert!(
+            md.contains("used by 1 route"),
+            "dep used via alias in route with custom name must show usage; got: {md}"
+        );
+        assert!(
+            md.contains("`contracts.upload` (route)"),
+            "should display the route name kwarg, not the function name; got: {md}"
+        );
     }
 
     // ── include_hover ─────────────────────────────────────────────────────────
