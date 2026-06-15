@@ -5,7 +5,13 @@ use super::unquote;
 use crate::state::{ClientCall, FStringSegment, FileFacts, Method, range_from_node};
 use tower_lsp_server::ls_types::{Position, Range};
 
-type PathResult = (String, Range, bool, Option<usize>, Option<Vec<FStringSegment>>);
+type PathResult = (
+    String,
+    Range,
+    bool,
+    Option<usize>,
+    Option<Vec<FStringSegment>>,
+);
 
 pub fn extract(
     src: &[u8],
@@ -222,11 +228,7 @@ fn node_text<'a>(src: &'a [u8], node: Node<'_>) -> &'a str {
 /// Returns `(path, range, is_prefix, path_depth, fstring_segments)`.
 /// `path_depth` is the total segment count when `is_prefix` is true.
 /// `fstring_segments` is populated for f-strings to enable segment-by-segment matching.
-fn first_arg_path(
-    src: &[u8],
-    args: Node<'_>,
-    enc: crate::offset::Encoding,
-) -> Option<PathResult> {
+fn first_arg_path(src: &[u8], args: Node<'_>, enc: crate::offset::Encoding) -> Option<PathResult> {
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
         match child.kind() {
