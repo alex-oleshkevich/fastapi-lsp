@@ -36,6 +36,10 @@ The framework wires things together through strings and decorator arguments; thi
 - A template string → the template file at line 1 ([F05](F05-templates.md) REQ-TPL-02).
 - An env key string or settings field → the `KEY=` line, `.env` first, `.env.example` when only defined there ([F09](F09-env-settings.md)).
 
+**REQ-NAV-04 — OAuth2 security-scheme URLs are clickable.**
+
+`tokenUrl` and `authorizationUrl` string literals inside `OAuth2PasswordBearer(...)`, `OAuth2AuthorizationCodeBearer(...)`, and similar OAuth2 class calls navigate to the route handler(s) whose `resolved_path` matches the normalized URL. Normalization: prepend `/` if the string does not already start with `/` (FastAPI's runtime behaviour for relative tokenUrl values). Multiple matching handlers return all locations; no match returns null.
+
 ### 3.2 Find references
 
 **REQ-NAV-02 — References aggregate every edge kind pointing at the target.**

@@ -221,7 +221,7 @@ You write `def create_book(book: BookCreate, db: Annotated[Session, Depends(get_
 ## 6. Open Questions & Decisions
 
 - **OQ-ACT-1** — Should create-model infer fields when the handler body accesses attributes (`book.title`)? Attractive, but it's inference creep; revisit after dogfooding.
-- **OQ-ACT-2** — Extract-router across files (handlers spread over modules). V1 is same-file selections only.
+- ~~**OQ-ACT-2**~~ — **Decision:** Same-file selections only for v1. Cross-file WorkspaceEdit is deferred.
 - **Decision** — Quick-fix batch (§3.2 rows 1–3) ships with M2 alongside their diagnostics; the rest is M8. Recorded in the [roadmap](../roadmap.md).
 
 ## Data Shapes & Code Map

@@ -155,6 +155,8 @@ enum Edge {
     ClientPath(Uri, Range),
     /// Cursor is on a template name string; navigate to the template file (REQ-NAV-01).
     TemplateName(String),
+    /// Cursor is on an OAuth2 tokenUrl/authorizationUrl string; navigate to the handler (REQ-NAV-04).
+    SecurityTokenUrl(String),
 }
 
 fn edge_at(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Edge> {
@@ -201,6 +203,13 @@ fn edge_at(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Edge> {
     for tpl in &facts.templates {
         if position_in_range(pos, tpl.range.start, tpl.range.end) {
             return Some(Edge::TemplateName(tpl.path.clone()));
+        }
+    }
+
+    // OAuth2 security scheme tokenUrl / authorizationUrl strings (REQ-NAV-04)
+    for site in &facts.security_scheme_sites {
+        if position_in_range(pos, site.range.start, site.range.end) {
+            return Some(Edge::SecurityTokenUrl(site.path.clone()));
         }
     }
 
@@ -324,6 +333,32 @@ fn resolve_edge(state: &WorkspaceState, edge: Edge) -> Vec<LspLocation> {
                 vec![]
             }
         }
+
+        // REQ-NAV-04: tokenUrl/authorizationUrl → matched route handler(s).
+        Edge::SecurityTokenUrl(path) => {
+            let linked = state.linked.load();
+            let mut seen: std::collections::HashSet<(Uri, Range)> =
+                std::collections::HashSet::new();
+            linked
+                .route_index
+                .values()
+                .flat_map(|records| records.iter())
+                .filter(|r| {
+                    matches!(&r.resolved_path, crate::state::ResolvedPath::Resolved(p) if p == &path)
+                })
+                .filter_map(|r| {
+                    let key = (r.handler.uri.clone(), r.handler.range);
+                    if seen.insert(key) {
+                        Some(LspLocation {
+                            uri: r.handler.uri.clone(),
+                            range: r.handler.range,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
     }
 }
 
@@ -366,6 +401,7 @@ mod tests {
             path: "/items".to_owned(),
             is_prefix: false,
             path_depth: None,
+            fstring_segments: None,
             range: call_range,
             path_range,
         });
@@ -469,6 +505,7 @@ mod tests {
             path: "/v1/".to_owned(),
             is_prefix: true,
             path_depth: Some(3),
+            fstring_segments: None,
             range: call_range,
             path_range,
         });

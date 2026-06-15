@@ -98,7 +98,7 @@ The bookshop grows `app/settings.py` with `class Settings(BaseSettings)` holding
 
 ## 6. Open Questions & Decisions
 
-- **OQ-ENV-1** — Should masking be opt-out (a provider toggle per [E15 OQ-CFG-2](../foundations/E15-app-config.md))? Default stays masked.
+- ~~**OQ-ENV-1**~~ — **Decision:** Masking is opt-out via `process_env_show_values = true` in [E15](../foundations/E15-app-config.md). Default stays masked. The toggle applies only to process-env entries (marked `(process)`); values from `.env` files are never shown.
 - **OQ-ENV-2** — Index `docker-compose.yml` `environment:` blocks as a third definition source? Deferred until a real workspace wants it.
 
 ## Data Shapes & Code Map

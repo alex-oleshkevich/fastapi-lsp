@@ -42,7 +42,9 @@ entrypoint = ""                          # path to the file holding the main app
 templates = []                           # template roots, workspace-relative
 source_roots = []                        # extra module-resolution roots (§2.5)
 env_files = [".env", ".env.example"]     # env definition files, in precedence order
+settings_env_files = [".env", ".env.example", ".env.unittest"]  # env files checked for BaseSettings field coverage (F09)
 process_env = false                      # consult the server's own process env (F09)
+process_env_show_values = false          # show process-env values in hover (masked by default)
 client_fixtures = ["client", "async_client"]   # test-client fixture names (F04)
 env.ignore = []                          # extra keys env/undefined-key never flags (F09)
 
@@ -56,6 +58,7 @@ code_lens = true
 symbols = true                           # document & workspace symbols (F12)
 navigation = true                        # goto-definition & references (F13)
 document_links = true                    # documentLink (F05/F09)
+test_unknown_paths = false               # opt-in: warn on test client calls matching no route (F04)
 
 [check]                                  # defaults for the `check` subcommand (F17)
 only = []                                # run only these diagnostic codes
@@ -90,7 +93,7 @@ The env index ([F09](../features/F09-env-settings.md)) reads from, in order:
 
 1. The `env_files` list — workspace-relative paths, earlier entries win on duplicate keys.
 2. Files **discovered from code**: paths named in `Config(".env")`, `SettingsConfigDict(env_file=...)`, `load_dotenv(...)`, and friends — the full catalog is [F09 REQ-ENV-08](../features/F09-env-settings.md).
-3. The server's **own process environment**, only when `process_env = true`. The LSP server inherits the environment the editor was launched with — a useful proxy for "what the dev shell exports", but it varies by launch method (desktop launchers export less than terminals), so it's opt-in and its values are labeled `(process)` wherever shown.
+3. The server's **own process environment**, only when `process_env = true`. The LSP server inherits the environment the editor was launched with — a useful proxy for "what the dev shell exports", but it varies by launch method (desktop launchers export less than terminals), so it's opt-in. Its entries are labeled `(process)` wherever shown. Their values are masked (shown as `••••••`) unless `process_env_show_values = true`. Values from `.env` files are always masked regardless of this toggle.
 
 `env.ignore` lists keys the `env/undefined-key` diagnostic never flags. It *extends* the built-in allowlist of well-known OS and CI variables (`HOME`, `PATH`, `PORT`, and friends — the full list lives in [F09](../features/F09-env-settings.md)); it never replaces it.
 

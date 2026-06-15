@@ -77,7 +77,7 @@ You're refactoring `get_db` to return an async session and need every consumer. 
 
 ## 6. Open Questions & Decisions
 
-- **OQ-DI-1** — Should hover show the *transitive* closure ("resolves 3 dependencies deep") or direct edges only? Start direct-only; transitive on a real need.
+- ~~**OQ-DI-1**~~ — **Decision:** Direct edges only. Expand to transitive closure only when a concrete feature or user need demands it.
 
 ## Data Shapes & Code Map
 

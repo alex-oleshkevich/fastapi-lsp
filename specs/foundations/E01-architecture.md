@@ -151,7 +151,7 @@ You type a new handler in `app/routers/books.py`. Pass 1 re-extracts that file's
 
 ## 8. Open Questions & Decisions
 
-- **OQ-ARCH-1** — Debounce window length: start at 300 ms and tune against a large fixture workspace.
+- ~~**OQ-ARCH-1**~~ — **Decision:** 300 ms, not configurable. Matches rust-analyzer range; only tune if a real large workspace proves it insufficient.
 - **Decision** — Pass 2 rebuilds wholesale instead of incrementally. Simplicity wins until a real workspace proves it too slow.
 - **Decision** — The performance budgets (P6 made measurable; [E17](E17-testing.md) tests against them):
   - Initial scan: ≤ 2 s per 1,000 indicator-matched files.

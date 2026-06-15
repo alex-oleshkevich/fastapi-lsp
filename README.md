@@ -3,30 +3,28 @@
 [![CI](https://github.com/alex-oleshkevich/fastapi-lsp/actions/workflows/ci.yml/badge.svg)](https://github.com/alex-oleshkevich/fastapi-lsp/actions/workflows/ci.yml)
 [![Release](https://github.com/alex-oleshkevich/fastapi-lsp/actions/workflows/release.yml/badge.svg)](https://github.com/alex-oleshkevich/fastapi-lsp/releases)
 
-A language server for FastAPI and Starlette. It understands routes, the `Depends()` graph, `url_for` reverse routing, Jinja templates, and env/settings — things a type checker cannot see. One Rust binary, any LSP-capable editor.
-
-Static analysis only: the server never imports or executes your code.
+Language server for FastAPI and Starlette — routes, `Depends()` graph, `url_for`, Jinja templates, env/settings. One Rust binary, any LSP-capable editor. Static analysis only.
 
 ## Features
 
-| Capability | What it provides |
+| | |
 |---|---|
-| **Diagnostics** | Path-param mismatches, duplicate/shadowed routes, unincluded routers, `Depends(fn())` anti-pattern, dependency cycles, broken `url_for` names, missing templates, undefined env keys |
-| **Navigation** | Go-to-definition from test `client.get("/path")` to handler; follow `Depends()` chains in both directions; jump into template files and `.env` lines |
-| **Hover** | Route card: resolved path, router chain, response model, dependencies, middleware |
-| **Completions** | Route paths in test calls, route names in `url_for`, template paths, env keys |
-| **Symbols** | Search `GET /api/books/{book_id}` in the symbol picker; paths resolved through all `include_router` prefixes |
-| **Code lenses** | Test counts per handler, dependency usage and override counts |
-| **`check` mode** | Same diagnostics as a CLI linter — pipe into CI with `fastapi-lsp check .` |
+| **Diagnostics** | param mismatches, shadowed routes, unincluded routers, `Depends(fn())`, dep cycles, broken `url_for`, missing templates, undefined env keys |
+| **Navigation** | test call → handler, `Depends()` chains both ways, template files, `.env` lines |
+| **Hover** | route card: resolved path, router chain, response model, deps, middleware |
+| **Completions** | route paths, `url_for` names, template paths, env keys |
+| **Symbols** | `GET /api/books/{book_id}` in the symbol picker |
+| **Code lenses** | test count, dep usage, override count per handler |
+| **`check` CLI** | same diagnostics as a linter — `fastapi-lsp check .` |
 
 ## Installation
 
 ```bash
-cargo install fastapi-lsp   # from source
-pip install fastapi-lsp      # pre-built binary via pip
+cargo install fastapi-lsp
+pip install fastapi-lsp
 ```
 
-Or download a release binary from the [releases page](https://github.com/alex-oleshkevich/fastapi-lsp/releases).
+Or grab a binary from the [releases page](https://github.com/alex-oleshkevich/fastapi-lsp/releases).
 
 ## Editor setup
 
@@ -40,8 +38,6 @@ vim.lsp.config('fastapi_lsp', {
 })
 vim.lsp.enable('fastapi_lsp')
 ```
-
-Include `html` / `htmldjango` filetypes — without them the server is never attached to template buffers, so template diagnostics and completions do not fire.
 
 ### Helix
 
@@ -64,95 +60,74 @@ name = "jinja"
 language-servers = ["fastapi-lsp"]
 ```
 
-Helix sends hover and goto-definition to the first server that advertises the capability; diagnostics, completion, and symbols merge across servers. List `fastapi-lsp` first to make its hover and goto primary.
-
 ### Zed
 
 ```jsonc
 // ~/.config/zed/settings.json
 {
-  "languages": {
-    "Python": { "language_servers": ["fastapi-lsp", "..."] }
-  },
-  "lsp": {
-    "fastapi-lsp": {
-      "initialization_options": { "templates": ["app/templates"] }
-    }
-  }
+  "languages": { "Python": { "language_servers": ["fastapi-lsp", "..."] } },
+  "lsp": { "fastapi-lsp": { "initialization_options": { "templates": ["app/templates"] } } }
 }
 ```
 
 ## Configuration
 
-Zero config works for standard projects. Configuration is loaded from three sources in decreasing priority: editor `InitializationOptions` › `fastapi-lsp.toml` at the workspace root › `[tool.fastapi-lsp]` in `pyproject.toml`.
+Zero config for standard projects. Priority: `InitializationOptions` › `fastapi-lsp.toml` › `[tool.fastapi-lsp]` in `pyproject.toml`.
 
-### Options
-
-| Option | Default | Description |
+| Option | Default | |
 |---|---|---|
-| `entrypoint` | _(auto-detected)_ | Path to the file that creates the `FastAPI()` app instance |
-| `templates` | `[]` | Directories to scan for Jinja templates |
-| `source_roots` | `[]` | Additional source roots for import resolution |
-| `env_files` | `[".env", ".env.example"]` | Env files scanned for key definitions |
-| `settings_env_files` | `[".env", ".env.example", ".env.unittest"]` | Env files checked for `BaseSettings` field coverage |
-| `process_env` | `false` | Include the process environment when checking env keys |
-| `client_fixtures` | `["client", "async_client"]` | pytest fixture names treated as HTTP test clients |
-| `env.ignore` | `[]` | Env key codes to suppress (e.g. `["DJANGO_SECRET_KEY"]`) |
+| `entrypoint` | _(auto-detected)_ | main app file |
+| `templates` | `[]` | Jinja template directories |
+| `source_roots` | `[]` | extra import resolution roots |
+| `env_files` | `[".env", ".env.example"]` | env key definitions |
+| `settings_env_files` | `[".env", ".env.example", ".env.unittest"]` | env files checked for `BaseSettings` coverage |
+| `process_env` | `false` | include server process env |
+| `process_env_show_values` | `false` | show process-env values in hover |
+| `client_fixtures` | `["client", "async_client"]` | pytest HTTP client fixture names |
+| `env.ignore` | `[]` | env keys to suppress from diagnostics |
 
-### Feature toggles
+Feature toggles — all `true` by default except `test_unknown_paths`:
 
-All features are enabled by default. Disable any individually under `[features]`:
-
-| Feature | Default | Controls |
-|---|---|---|
-| `diagnostics` | `true` | All diagnostic codes |
-| `completion` | `true` | Route path, `url_for`, template, env key completions |
-| `hover` | `true` | Route cards, dependency summaries |
-| `navigation` | `true` | Go-to-definition and references |
-| `code_actions` | `true` | Quick fixes, extract-router, extract-dependency |
-| `code_lens` | `true` | Test count, dependency usage, override count lenses |
-| `symbols` | `true` | Workspace symbol search |
-| `inlay_hints` | `true` | Inline path-param type hints |
-| `document_links` | `true` | Clickable template and env file links |
-
-### Check defaults
-
-| Option | Default | Description |
-|---|---|---|
-| `check.only` | `[]` | Run only these diagnostic codes |
-| `check.ignore` | `[]` | Suppress these diagnostic codes in `check` mode |
-
-### Example
+| Toggle | Default |
+|---|---|
+| `diagnostics` | `true` |
+| `completion` | `true` |
+| `hover` | `true` |
+| `navigation` | `true` |
+| `code_actions` | `true` |
+| `code_lens` | `true` |
+| `symbols` | `true` |
+| `inlay_hints` | `true` |
+| `document_links` | `true` |
+| `test_unknown_paths` | `false` |
 
 ```toml
 # fastapi-lsp.toml
 entrypoint = "app/main.py"
 templates = ["app/templates"]
-env_files = [".env", ".env.example"]
 
 [features]
 code_lens = false
 
 [check]
+only = []
 ignore = ["env/undefined-key"]
 ```
 
 ## CLI
 
 ```
-fastapi-lsp lsp [--stdio | --http --address 127.0.0.1 --port 9257]
-fastapi-lsp check PATH [--only CODES] [--ignore CODES] [--format text|json]
+fastapi-lsp lsp [--stdio | --tcp --address 127.0.0.1 --port 9257]
+fastapi-lsp check PATH [--only CODES] [--ignore CODES] [--format text|json] [--fix]
+fastapi-lsp routes [PATH] [--format text|json]
 ```
-
-`check` exits non-zero when any Warning-or-worse diagnostic is found. The `--format json` flag emits NDJSON — one diagnostic object per line, suitable for scripting.
 
 ## Development
 
 ```bash
-cargo build                             # build debug binary
-cargo test                              # unit tests
-uv run --group dev pytest e2e/ -v      # e2e tests (requires debug binary)
-RUST_LOG=debug ./target/debug/fastapi-lsp lsp --stdio   # manual LSP session
+cargo build
+cargo test
+uv run --group dev pytest e2e/ -v
 ```
 
 ## License

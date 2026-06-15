@@ -33,27 +33,22 @@ pub async fn run(args: RoutesArgs) -> i32 {
     0
 }
 
-fn display_path(record: &RouteRecord) -> &str {
+fn display_path(record: &RouteRecord) -> String {
     match &record.resolved_path {
-        ResolvedPath::Resolved(p) => p.as_str(),
-        ResolvedPath::Unresolved => &record.decorator_path,
+        ResolvedPath::Resolved(p) => p.clone(),
+        ResolvedPath::Unresolved => format!("\u{27e8}unresolved\u{27e9}{}", record.decorator_path),
     }
 }
 
 fn handler_location(record: &RouteRecord) -> String {
-    let path = record
-        .handler
-        .uri
-        .as_str()
-        .strip_prefix("file://")
-        .unwrap_or(record.handler.uri.as_str());
+    let path = crate::check::uri_to_display_path(record.handler.uri.as_str());
     format!("{}:{}", path, record.handler.range.start.line + 1)
 }
 
 fn print_text(records: &[&RouteRecord]) {
     for r in records {
         println!(
-            "{:<9} {:<40} {:<30} {}",
+            "{:<9} {:<50} {:<30} {}",
             format!("{}", r.method),
             display_path(r),
             r.name,
@@ -68,7 +63,7 @@ fn print_json(records: &[&RouteRecord]) {
             "method": format!("{}", r.method),
             "path": display_path(r),
             "name": r.name,
-            "handler": r.handler.uri.as_str(),
+            "handler": crate::check::uri_to_display_path(r.handler.uri.as_str()),
             "line": r.handler.range.start.line + 1,
         });
         println!("{obj}");
@@ -128,23 +123,23 @@ mod tests {
     }
 
     #[test]
-    fn display_path_unresolved_falls_back_to_decorator() {
+    fn display_path_unresolved_prefixes_decorator() {
         let mut r = make_record(0, Method::Get, "/items", "list_items", "/app/main.py", 10);
         r.resolved_path = ResolvedPath::Unresolved;
         r.decorator_path = "/fallback".to_owned();
-        assert_eq!(display_path(&r), "/fallback");
+        assert_eq!(display_path(&r), "\u{27e8}unresolved\u{27e9}/fallback");
     }
 
     #[test]
     fn handler_location_strips_file_prefix() {
         let r = make_record(0, Method::Get, "/items", "list_items", "/app/main.py", 9);
-        assert_eq!(handler_location(&r), "/app/main.py:10");
+        assert!(handler_location(&r).ends_with("/app/main.py:10"));
     }
 
     #[test]
     fn handler_location_line_is_one_based() {
         let r = make_record(0, Method::Post, "/users", "create_user", "/app/users.py", 0);
-        assert_eq!(handler_location(&r), "/app/users.py:1");
+        assert!(handler_location(&r).ends_with("/app/users.py:1"));
     }
 
     #[test]

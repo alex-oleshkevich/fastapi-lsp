@@ -437,8 +437,23 @@ fn extract_assignment(
     enc: crate::offset::Encoding,
 ) {
     // lhs = rhs
+    // Accept both plain identifiers (`router = APIRouter()`) and
+    // `self.attr` attribute assignments (`self.router = APIRouter()`), REQ-ROUTE-13.
     let lhs = match node.child_by_field_name("left").or_else(|| node.child(0)) {
-        Some(n) if n.kind() == "identifier" => n,
+        Some(n) => n,
+        None => return,
+    };
+    let var_name = match lhs.kind() {
+        "identifier" => node_text(src, lhs).to_owned(),
+        "attribute" => {
+            // Only handle `self.X` — other attribute assignments are too dynamic.
+            let obj = lhs.child_by_field_name("object").map(|n| node_text(src, n)).unwrap_or("");
+            let attr = lhs.child_by_field_name("attribute").map(|n| node_text(src, n)).unwrap_or("");
+            if obj != "self" || attr.is_empty() {
+                return;
+            }
+            format!("self.{attr}")
+        }
         _ => return,
     };
     let rhs = match node.child_by_field_name("right").or_else(|| node.child(2)) {
@@ -466,7 +481,6 @@ fn extract_assignment(
         _ => return,
     };
 
-    let var_name = node_text(src, lhs).to_owned();
     let range = range_from_node(lhs, src, enc);
 
     if APP_CTORS.contains(&callee_name) {
@@ -1880,6 +1894,51 @@ def list_items(): pass
         assert_eq!(
             facts.routes[0].dependencies,
             vec!["verify_token", "auth.rate_limit", "get_db"]
+        );
+    }
+
+    // ── class-attribute router (REQ-ROUTE-13) ─────────────────────────────────
+
+    #[test]
+    fn self_router_assignment_creates_router_decl() {
+        let facts = run(r#"
+from fastapi import APIRouter
+
+class MyView:
+    def __init__(self):
+        self.router = APIRouter(prefix="/items")
+"#);
+        let router = facts
+            .routers
+            .iter()
+            .find(|r| r.name == "self.router");
+        assert!(
+            router.is_some(),
+            "self.router = APIRouter() must produce a RouterDecl with name 'self.router'"
+        );
+        let router = router.unwrap();
+        assert!(
+            matches!(&router.prefix, PrefixValue::Literal(p) if p == "/items"),
+            "prefix must be extracted"
+        );
+    }
+
+    #[test]
+    fn self_router_decorator_sets_object_name() {
+        let facts = run(r#"
+from fastapi import APIRouter
+
+class MyView:
+    def __init__(self):
+        self.router = APIRouter()
+
+    @self.router.get("/list")
+    def list_items(self): pass
+"#);
+        assert_eq!(facts.routes.len(), 1);
+        assert_eq!(
+            facts.routes[0].object_name, "self.router",
+            "route object_name must be 'self.router'"
         );
     }
 }

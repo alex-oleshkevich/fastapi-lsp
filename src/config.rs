@@ -11,6 +11,7 @@ pub struct RawConfig {
     /// Env file basenames checked for required BaseSettings fields (settings/env-key-missing).
     pub settings_env_files: Vec<String>,
     pub process_env: bool,
+    pub process_env_show_values: bool,
     pub client_fixtures: Vec<String>,
     #[serde(rename = "env")]
     pub env: EnvConfig,
@@ -27,6 +28,7 @@ impl Default for RawConfig {
             env_files: vec![".env".into(), ".env.example".into()],
             settings_env_files: vec![".env".into(), ".env.example".into(), ".env.unittest".into()],
             process_env: false,
+            process_env_show_values: false,
             client_fixtures: vec!["client".into(), "async_client".into()],
             env: EnvConfig::default(),
             features: None,
@@ -52,6 +54,7 @@ pub struct FeatureToggles {
     pub symbols: bool,
     pub navigation: bool,
     pub document_links: bool,
+    pub test_unknown_paths: bool,
 }
 
 impl Default for FeatureToggles {
@@ -66,6 +69,7 @@ impl Default for FeatureToggles {
             symbols: true,
             navigation: true,
             document_links: true,
+            test_unknown_paths: false,
         }
     }
 }
@@ -87,6 +91,7 @@ pub struct ResolvedConfig {
     /// Basenames of env files that must declare required BaseSettings fields.
     pub settings_env_files: Vec<String>,
     pub process_env: bool,
+    pub process_env_show_values: bool,
     pub client_fixtures: Vec<String>,
     pub env_ignore: Vec<String>,
     pub features: FeatureToggles,
@@ -103,6 +108,7 @@ impl ResolvedConfig {
             env_files: vec![".env".into(), ".env.example".into()],
             settings_env_files: vec![".env".into(), ".env.example".into(), ".env.unittest".into()],
             process_env: false,
+            process_env_show_values: false,
             client_fixtures: vec!["client".into(), "async_client".into()],
             env_ignore: vec![],
             features: FeatureToggles::default(),
@@ -193,6 +199,9 @@ fn merge(base: &mut RawConfig, over: RawConfig) {
     if over.process_env {
         base.process_env = true;
     }
+    if over.process_env_show_values {
+        base.process_env_show_values = true;
+    }
     if !over.client_fixtures.is_empty() {
         base.client_fixtures = over.client_fixtures;
     }
@@ -269,6 +278,7 @@ fn resolve(root: &Path, raw: RawConfig) -> ResolvedConfig {
             .collect(),
         settings_env_files: raw.settings_env_files,
         process_env: raw.process_env,
+        process_env_show_values: raw.process_env_show_values,
         client_fixtures: raw.client_fixtures,
         env_ignore: raw.env.ignore,
         features: raw.features.unwrap_or_default(),

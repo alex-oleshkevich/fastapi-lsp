@@ -26,7 +26,7 @@ This spec covers:
 
 - Running tests or endpoints (P1).
 - Asserting anything about request/response bodies.
-- Non-literal paths (`client.get(url)` where `url` is computed) — skipped silently, per P4.
+- Fully computed paths (`client.get(url)` where `url` is a variable) — skipped silently, per P4. f-string paths are partially matched (REQ-TLINK-03).
 
 ## 3. Detailed Specification
 
@@ -48,6 +48,20 @@ Trailing slashes are significant in the trie — `/api/books/` and `/api/books` 
 
 Matches are stored in `test_refs` (route → call sites) at link time, so both directions below are pure lookups.
 
+**REQ-TLINK-03 — f-string paths match best-effort on literal segments.**
+
+An f-string client call (`f"/api/books/{book_id}/authors/{author_id}"`) is not skipped. Its literal segments — the parts outside `{}` interpolations — are extracted in order: `["/api/books/", "/authors/"]`. Each interpolated span is treated as a single-segment wildcard (matching any `{param}` node in the trie, the same as a concrete segment match in REQ-TLINK-02). The verb must still match.
+
+The match is accepted only when exactly one route satisfies the full segment sequence. When zero routes match or two or more match, the call is silently ignored — no link, no count. This keeps the rule false-positive-free: a short f-string like `f"/{resource}"` with many plausible routes is always ignored.
+
+Query strings and trailing slashes follow the same rules as REQ-TLINK-02 (strip query, exact-first then slash-insensitive fallback). The `PathFString` variant in `ClientCall` carries the segment list for use by linking.
+
+**REQ-TLINK-04 — test/unknown-path is an opt-in diagnostic.**
+
+A client call whose path matches no route in the index may emit a `test/unknown-path` Warning. The check is disabled by default (`[features] test_unknown_paths = false`) because 404-tests and exploratory calls are legitimate. When enabled, the check fires on both literal paths (REQ-TLINK-02) and unambiguously matched f-string paths (REQ-TLINK-03); ambiguous f-string calls never fire regardless of the toggle.
+
+The diagnostic anchors on the path string argument; its message names the unmatched path and suggests close alternatives (edit-distance 1 in the trie). The catalog entry lives in [F02](F02-diagnostics.md).
+
 ### 3.3 Capability surface
 
 This spec owns the matching; the features over it live in the capability specs — goto and references in [F13](F13-navigation.md), the test-reference lens in [F15](F15-code-lens.md), path completion in [F11](F11-completion.md) REQ-CPL-02.
@@ -59,22 +73,28 @@ In `tests/test_books.py` you type `client.get("` — completion lists the booksh
 ## 5. Edge Cases & Failure Modes
 
 - Path with query string (`/api/books?limit=5`) → match on the path part only.
-- f-string path (`f"/api/books/{book.id}"`) → not a literal; skipped (P4). **OQ-TLINK-1** tracks partial f-string matching.
+- f-string path (`f"/api/books/{book_id}/authors/{author_id}"`) → literal segments extracted and matched best-effort (REQ-TLINK-03). Links when exactly one route matches; silently ignored when ambiguous.
+- f-string interpolation against a `{p:path}` route (multi-segment wildcard) → never matches; the interpolation is a single-segment wildcard and `{p:path}` spans multiple segments. The call is silently ignored.
 - `client.request("GET", "/path")` → recognized as verb-from-first-argument when it's a literal.
 - Trailing slash mismatches (`client.get("/api/books")` vs route `/api/books/`) → the exact match misses; the slash-insensitive fallback links them (REQ-TLINK-02).
-- A test hits a path no route serves → no diagnostic in v1 (could be a legit 404 test); recorded as **OQ-TLINK-2**.
+- A test hits a path no route serves → `test/unknown-path` diagnostic, off by default (REQ-TLINK-04).
 
 ## 6. Open Questions & Decisions
 
-- **OQ-TLINK-1** — f-string paths: match the literal prefix/suffix around interpolations? Deferred; measure how common they are in real suites first.
-- **OQ-TLINK-2** — Opt-in `test/unknown-path` diagnostic for client calls matching no route. Tempting, but 404-tests make it false-positive-prone; revisit post-M4.
+- ~~**OQ-TLINK-1**~~ — **Decision:** Best-effort matching on literal segments; link only when unambiguous (see REQ-TLINK-03).
+- ~~**OQ-TLINK-2**~~ — **Decision:** Opt-in `test/unknown-path` diagnostic, disabled by default via `[features] test_unknown_paths = false`. Users without 404-tests can enable it cleanly (see REQ-TLINK-04, [F02](F02-diagnostics.md)).
 
 ## Data Shapes & Code Map
 
 ```rust
 // src/parsing/clients.rs — facts
-pub struct ClientCall { pub verb: Method, pub path: String, pub string_range: Range,
+pub struct ClientCall { pub verb: Method, pub path: ClientPath, pub string_range: Range,
                         pub client: ClientKind }
+pub enum ClientPath {
+    Literal(String),                  // "api/books/1"
+    FString(Vec<FStringSegment>),     // f"/api/books/{id}/authors/{aid}"
+}
+pub enum FStringSegment { Literal(String), Wildcard }
 pub enum ClientKind { TestClient, HttpxClient, HttpxAsyncClient, FixtureNamed }   // recognition route
 
 // src/linking.rs — match results into E07's test_refs
