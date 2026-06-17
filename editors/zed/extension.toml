@@ -4,7 +4,7 @@ description = "Language server for FastAPI and Starlette"
 version = "0.1.0"
 schema_version = 1
 authors = ["Alex Oleshkevich <techsupport@investerra.ch>"]
-repository = "https://github.com/alexoleshkevich/fastapi-lsp"
+repository = "https://github.com/alex-oleshkevich/fastapi-lsp"
 
 [lib]
 kind = "Rust"
