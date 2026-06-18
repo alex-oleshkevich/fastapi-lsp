@@ -8,7 +8,6 @@ use crate::config;
 use crate::offset::Encoding;
 use crate::state::WorkspaceState;
 
-const BUILD_TIMESTAMP: &str = env!("BUILD_TIMESTAMP");
 
 /// Indicator strings: a file is parsed during scans only if it contains one of these.
 /// On didOpen/didChange, files are always parsed regardless (REQ-ARCH-05).
@@ -114,7 +113,7 @@ impl LanguageServer for FastApiLsp {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "fastapi-lsp".to_owned(),
-                version: Some(BUILD_TIMESTAMP.to_owned()),
+                version: Some(env!("CARGO_PKG_VERSION").to_owned()),
             }),
             capabilities: server_capabilities(&self.state).await,
             offset_encoding: Some(match enc {

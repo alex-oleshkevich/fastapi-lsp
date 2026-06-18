@@ -48,6 +48,12 @@ async fn main() {
         .with_writer(std::io::stderr)
         .init();
 
+    tracing::info!(
+        "{} v{} starting",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let cli = Cli::parse();
 
     // Bare `--stdio` without a subcommand is an editor-compat alias for the lsp subcommand.
