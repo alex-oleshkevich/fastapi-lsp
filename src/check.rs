@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use owo_colors::OwoColorize;
 use tower_lsp_server::ls_types::{DiagnosticSeverity, Range};
 
 use crate::cli::{CheckArgs, OutputFormat};
@@ -138,14 +139,19 @@ fn print_text(diags: &[(String, tower_lsp_server::ls_types::Diagnostic)]) {
             _ => {}
         }
         if color {
-            let sev_color = severity_color(d.severity);
+            let colored_code = match d.severity {
+                Some(DiagnosticSeverity::ERROR) => code.red().bold().to_string(),
+                Some(DiagnosticSeverity::WARNING) => code.yellow().bold().to_string(),
+                Some(DiagnosticSeverity::INFORMATION) => code.cyan().to_string(),
+                Some(DiagnosticSeverity::HINT) => code.blue().to_string(),
+                _ => code.to_string(),
+            };
             println!(
-                "\x1b[1m{}\x1b[0m:{}:{}: {}{}\x1b[0m {}",
-                path,
+                "{}:{}:{}: {} {}",
+                path.bold(),
                 d.range.start.line + 1,
                 d.range.start.character + 1,
-                sev_color,
-                code,
+                colored_code,
                 d.message,
             );
         } else {
@@ -199,14 +205,13 @@ fn print_text(diags: &[(String, tower_lsp_server::ls_types::Diagnostic)]) {
     };
 
     if color {
-        let summary_color = if errors > 0 {
-            "\x1b[1;31m"
+        if errors > 0 {
+            eprintln!("{}", summary.as_str().red().bold());
         } else if warnings > 0 {
-            "\x1b[1;33m"
+            eprintln!("{}", summary.as_str().yellow().bold());
         } else {
-            "\x1b[1;32m"
-        };
-        eprintln!("{}{}\x1b[0m", summary_color, summary);
+            eprintln!("{}", summary.as_str().green().bold());
+        }
     } else {
         eprintln!("{}", summary);
     }
@@ -236,19 +241,20 @@ fn print_text_with_applied(
             fixed_count += 1;
         }
         if color {
-            let sev_color = severity_color(d.severity);
-            let fixed_marker = if is_fixed {
-                " \x1b[32m[fixed]\x1b[0m"
-            } else {
-                ""
+            let colored_code = match d.severity {
+                Some(DiagnosticSeverity::ERROR) => code.red().bold().to_string(),
+                Some(DiagnosticSeverity::WARNING) => code.yellow().bold().to_string(),
+                Some(DiagnosticSeverity::INFORMATION) => code.cyan().to_string(),
+                Some(DiagnosticSeverity::HINT) => code.blue().to_string(),
+                _ => code.to_string(),
             };
+            let fixed_marker = if is_fixed { format!(" {}", "[fixed]".green()) } else { String::new() };
             println!(
-                "\x1b[1m{}\x1b[0m:{}:{}: {}{}\x1b[0m {}{}",
-                path,
+                "{}:{}:{}: {} {}{}",
+                path.bold(),
                 d.range.start.line + 1,
                 d.range.start.character + 1,
-                sev_color,
-                code,
+                colored_code,
                 d.message,
                 fixed_marker,
             );
@@ -328,14 +334,13 @@ fn print_text_with_applied(
     };
 
     if color {
-        let summary_color = if unfixed_errors > 0 {
-            "\x1b[1;31m"
+        if unfixed_errors > 0 {
+            eprintln!("{}", summary.as_str().red().bold());
         } else if unfixed_warnings > 0 {
-            "\x1b[1;33m"
+            eprintln!("{}", summary.as_str().yellow().bold());
         } else {
-            "\x1b[1;32m"
-        };
-        eprintln!("{}{}\x1b[0m", summary_color, summary);
+            eprintln!("{}", summary.as_str().green().bold());
+        }
     } else {
         eprintln!("{}", summary);
     }
@@ -377,16 +382,6 @@ fn print_json_with_applied(
             "applied": is_applied,
         });
         println!("{}", serde_json::to_string(&obj).unwrap_or_default());
-    }
-}
-
-fn severity_color(sev: Option<DiagnosticSeverity>) -> &'static str {
-    match sev {
-        Some(DiagnosticSeverity::ERROR) => "\x1b[1;31m",
-        Some(DiagnosticSeverity::WARNING) => "\x1b[1;33m",
-        Some(DiagnosticSeverity::INFORMATION) => "\x1b[36m",
-        Some(DiagnosticSeverity::HINT) => "\x1b[34m",
-        _ => "",
     }
 }
 
