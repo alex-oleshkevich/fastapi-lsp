@@ -73,6 +73,7 @@ jobs:
 
   build-wheels:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu }
@@ -88,7 +89,7 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --strip
           sccache: true
-          manylinux: auto
+          manylinux: 2_28
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.target }}
