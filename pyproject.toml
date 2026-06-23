@@ -1,6 +1,6 @@
 [project]
 name = "fastapi-lsp"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Language server for FastAPI and Starlette"
 readme = "README.md"
 license = { text = "MIT" }
@@ -10,7 +10,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Rust",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 

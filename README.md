@@ -19,7 +19,17 @@ Language server for FastAPI and Starlette — routes, `Depends()` graph, `url_fo
 
 ## Installation
 
-Download a binary from the [releases page](https://github.com/alex-oleshkevich/fastapi-lsp/releases).
+```bash
+uv tool install fastapi-lsp
+```
+
+Or with pip:
+
+```bash
+pip install fastapi-lsp
+```
+
+Or download a pre-built binary from the [releases page](https://github.com/alex-oleshkevich/fastapi-lsp/releases).
 
 ## Editor setup
 
