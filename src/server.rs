@@ -328,10 +328,9 @@ impl LanguageServer for FastApiLsp {
             // Config file change: reload config and re-run diagnostics.
             if is_config_file(change.uri.path().as_str()) {
                 let workspace_root = self.state.config.read().await.workspace_root.clone();
-                if let Ok(cfg) = tokio::task::spawn_blocking(move || {
-                    crate::config::load(&workspace_root, None)
-                })
-                .await
+                if let Ok(cfg) =
+                    tokio::task::spawn_blocking(move || crate::config::load(&workspace_root, None))
+                        .await
                 {
                     *self.state.config.write().await = cfg;
                     tracing::info!("workspace config reloaded");
@@ -834,11 +833,9 @@ async fn debounce_linker(state: Arc<WorkspaceState>, client: Client) {
             let env_ignore = state.config.read().await.env_ignore.clone();
             for uri_ref in state.file_facts.iter() {
                 let uri = uri_ref.key().clone();
-                let mut diags =
-                    crate::features::diagnostics::compute(&state, &uri, &env_ignore);
+                let mut diags = crate::features::diagnostics::compute(&state, &uri, &env_ignore);
                 if let Some(source) = state.file_sources.get(&uri) {
-                    diags =
-                        crate::features::diagnostics::apply_noqa(diags, &source);
+                    diags = crate::features::diagnostics::apply_noqa(diags, &source);
                 }
                 client.publish_diagnostics(uri, diags, None).await;
             }
