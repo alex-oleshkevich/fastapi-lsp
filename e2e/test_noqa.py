@@ -77,6 +77,9 @@ async def test_noqa_with_code_suppresses_only_matching(client: pytest_lsp.Langua
         "def get_book(title: str):\n"
         "    return {'title': title}\n"
     )
+    # Clear any diagnostics from the workspace scan so wait_for_diagnostics
+    # blocks until the server re-publishes after processing this didOpen.
+    client.diagnostics.pop(uri, None)
     client.text_document_did_open(
         types.DidOpenTextDocumentParams(
             text_document=types.TextDocumentItem(
