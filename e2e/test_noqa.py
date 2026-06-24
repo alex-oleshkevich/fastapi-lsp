@@ -68,8 +68,9 @@ async def test_bare_noqa_suppresses_diagnostic(client: pytest_lsp.LanguageClient
 
 async def test_noqa_with_code_suppresses_only_matching(client: pytest_lsp.LanguageClient):
     """# noqa: route/param-missing-arg suppresses only that code, not others."""
-    # Send a modified version of the file inline where # noqa is code-specific
-    uri = NOQA_APP.as_uri()
+    # Use a virtual URI not present on disk — avoids any race with workspace-scan
+    # diagnostics that would otherwise pre-populate client.diagnostics for the URI.
+    uri = (NOQA_FIXTURE / "_virtual_noqa_test.py").as_uri()
     text = (
         "from fastapi import FastAPI\n"
         "app = FastAPI()\n"
@@ -77,15 +78,12 @@ async def test_noqa_with_code_suppresses_only_matching(client: pytest_lsp.Langua
         "def get_book(title: str):\n"
         "    return {'title': title}\n"
     )
-    # Clear any diagnostics from the workspace scan so wait_for_diagnostics
-    # blocks until the server re-publishes after processing this didOpen.
-    client.diagnostics.pop(uri, None)
     client.text_document_did_open(
         types.DidOpenTextDocumentParams(
             text_document=types.TextDocumentItem(
                 uri=uri,
                 language_id="python",
-                version=2,
+                version=1,
                 text=text,
             )
         )
