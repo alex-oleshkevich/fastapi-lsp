@@ -67,8 +67,11 @@ language-servers = ["fastapi-lsp"]
 
 ### Zed
 
+Install from the Zed extensions panel (`Cmd+Shift+X`) — search for **fastapi-lsp** and click Install.
+
+Then add to `~/.config/zed/settings.json`:
+
 ```jsonc
-// ~/.config/zed/settings.json
 {
   "languages": { "Python": { "language_servers": ["fastapi-lsp", "..."] } },
   "lsp": { "fastapi-lsp": { "initialization_options": { "templates": ["app/templates"] } } }
