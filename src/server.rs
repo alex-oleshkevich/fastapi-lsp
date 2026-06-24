@@ -963,7 +963,10 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
     let env_ignore = state.config.read().await.env_ignore.clone();
     for uri_ref in state.file_facts.iter() {
         let uri = uri_ref.key().clone();
-        let diags = crate::features::diagnostics::compute(state, &uri, &env_ignore);
+        let mut diags = crate::features::diagnostics::compute(state, &uri, &env_ignore);
+        if let Some(source) = state.file_sources.get(&uri) {
+            diags = crate::features::diagnostics::apply_noqa(diags, &source);
+        }
         client.publish_diagnostics(uri, diags, None).await;
     }
 }
