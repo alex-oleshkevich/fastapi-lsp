@@ -8,7 +8,6 @@ use crate::config;
 use crate::offset::Encoding;
 use crate::state::WorkspaceState;
 
-
 /// Indicator strings: a file is parsed during scans only if it contains one of these.
 /// On didOpen/didChange, files are always parsed regardless (REQ-ARCH-05).
 const INDICATORS: &[&str] = &[

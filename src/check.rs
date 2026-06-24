@@ -248,7 +248,11 @@ fn print_text_with_applied(
                 Some(DiagnosticSeverity::HINT) => code.blue().to_string(),
                 _ => code.to_string(),
             };
-            let fixed_marker = if is_fixed { format!(" {}", "[fixed]".green()) } else { String::new() };
+            let fixed_marker = if is_fixed {
+                format!(" {}", "[fixed]".green())
+            } else {
+                String::new()
+            };
             println!(
                 "{}:{}:{}: {} {}{}",
                 path.bold(),
