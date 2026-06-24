@@ -67,9 +67,9 @@ language-servers = ["fastapi-lsp"]
 
 ### Zed
 
-Install from the Zed extensions panel (`Cmd+Shift+X`) — search for **fastapi-lsp** and click Install.
+Install from the Zed extensions panel (`Cmd+Shift+X`) — search for **fastapi-lsp** and click Install. It activates automatically for Python, HTML, and Jinja2 files.
 
-Then add to `~/.config/zed/settings.json`:
+To control server order or pass initialization options, add to `~/.config/zed/settings.json`:
 
 ```jsonc
 {
