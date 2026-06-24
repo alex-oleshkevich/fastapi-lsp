@@ -1208,6 +1208,41 @@ pub fn missing_template_diag(path: &str, suggestion: Option<&str>, range: Range)
     }
 }
 
+/// Remove diagnostics suppressed by `# noqa` comments in `source`.
+/// Bare `# noqa` suppresses every finding on that line.
+/// `# noqa: di/cycle` suppresses only that code on that line.
+pub fn apply_noqa(diags: Vec<Diagnostic>, source: &str) -> Vec<Diagnostic> {
+    if !source.contains("# noqa") {
+        return diags;
+    }
+    let lines: Vec<&str> = source.lines().collect();
+    diags
+        .into_iter()
+        .filter(|d| {
+            let line_idx = d.range.start.line as usize;
+            let Some(line) = lines.get(line_idx) else {
+                return true;
+            };
+            let Some(pos) = line.find("# noqa") else {
+                return true;
+            };
+            let after = line[pos + 6..].trim_start();
+            if after.is_empty() || after.starts_with('\n') || after.starts_with('#') {
+                return false; // bare # noqa — suppress everything on this line
+            }
+            if let Some(rest) = after.strip_prefix(':') {
+                let code_str = match d.code.as_ref() {
+                    Some(NumberOrString::String(s)) => s.as_str(),
+                    _ => return true,
+                };
+                let codes: Vec<&str> = rest.split(',').map(str::trim).collect();
+                return !codes.contains(&code_str);
+            }
+            true
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3381,5 +3416,85 @@ mod tests {
         );
         assert!(d.message.contains("/api/missing"));
         assert_eq!(d.source, Some("fastapi-lsp".to_owned()));
+    }
+
+    // ── apply_noqa ───────────────────────────────────────────────────────────
+
+    fn make_diag_on_line(line: u32, code: &str) -> Diagnostic {
+        use tower_lsp_server::ls_types::Position;
+        Diagnostic {
+            range: Range {
+                start: Position::new(line, 0),
+                end: Position::new(line, 10),
+            },
+            severity: Some(DiagnosticSeverity::WARNING),
+            code: Some(NumberOrString::String(code.to_owned())),
+            source: Some("fastapi-lsp".to_owned()),
+            message: format!("test: {code}"),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn apply_noqa_bare_suppresses_all_on_line() {
+        let source = "x = 1\ny = 2  # noqa\nz = 3";
+        let diags = vec![
+            make_diag_on_line(0, "route/duplicate"),
+            make_diag_on_line(1, "route/duplicate"),
+            make_diag_on_line(1, "di/cycle"),
+        ];
+        let result = apply_noqa(diags, source);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn apply_noqa_code_suppresses_only_matching_code() {
+        let source = "x = 1  # noqa: route/duplicate";
+        let diags = vec![
+            make_diag_on_line(0, "route/duplicate"),
+            make_diag_on_line(0, "di/cycle"),
+        ];
+        let result = apply_noqa(diags, source);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].code,
+            Some(NumberOrString::String("di/cycle".to_owned()))
+        );
+    }
+
+    #[test]
+    fn apply_noqa_multi_code_suppresses_listed_codes() {
+        let source = "x = 1  # noqa: route/duplicate, di/cycle";
+        let diags = vec![
+            make_diag_on_line(0, "route/duplicate"),
+            make_diag_on_line(0, "di/cycle"),
+            make_diag_on_line(0, "url/unknown-name"),
+        ];
+        let result = apply_noqa(diags, source);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].code,
+            Some(NumberOrString::String("url/unknown-name".to_owned()))
+        );
+    }
+
+    #[test]
+    fn apply_noqa_no_noqa_returns_all() {
+        let source = "x = 1\ny = 2";
+        let diags = vec![
+            make_diag_on_line(0, "route/duplicate"),
+            make_diag_on_line(1, "di/cycle"),
+        ];
+        let result = apply_noqa(diags, source);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn apply_noqa_wrong_line_not_suppressed() {
+        let source = "x = 1\ny = 2  # noqa";
+        let diags = vec![make_diag_on_line(0, "route/duplicate")];
+        let result = apply_noqa(diags, source);
+        assert_eq!(result.len(), 1);
     }
 }

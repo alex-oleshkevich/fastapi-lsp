@@ -325,6 +325,21 @@ impl LanguageServer for FastApiLsp {
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
+            // Config file change: reload config and re-run diagnostics.
+            if is_config_file(change.uri.path().as_str()) {
+                let workspace_root = self.state.config.read().await.workspace_root.clone();
+                if let Ok(cfg) = tokio::task::spawn_blocking(move || {
+                    crate::config::load(&workspace_root, None)
+                })
+                .await
+                {
+                    *self.state.config.write().await = cfg;
+                    tracing::info!("workspace config reloaded");
+                }
+                self.state.bump_generation();
+                continue;
+            }
+
             // Template files (HTML/Jinja) don't go through the Python parser.
             // Only create/delete events change the index (which path exists); modify events
             // don't change the set of files so they don't need a re-link.
@@ -560,7 +575,10 @@ impl LanguageServer for FastApiLsp {
     ) -> Result<DocumentDiagnosticReportResult> {
         let uri = params.text_document.uri;
         let env_ignore = self.state.config.read().await.env_ignore.clone();
-        let items = crate::features::diagnostics::compute(&self.state, &uri, &env_ignore);
+        let mut items = crate::features::diagnostics::compute(&self.state, &uri, &env_ignore);
+        if let Some(source) = self.state.file_sources.get(&uri) {
+            items = crate::features::diagnostics::apply_noqa(items, &source);
+        }
         Ok(DocumentDiagnosticReportResult::Report(
             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                 related_documents: None,
@@ -583,7 +601,11 @@ impl LanguageServer for FastApiLsp {
             .iter()
             .map(|entry| {
                 let uri = entry.key().clone();
-                let diags = crate::features::diagnostics::compute(&self.state, &uri, &env_ignore);
+                let mut diags =
+                    crate::features::diagnostics::compute(&self.state, &uri, &env_ignore);
+                if let Some(source) = self.state.file_sources.get(&uri) {
+                    diags = crate::features::diagnostics::apply_noqa(diags, &source);
+                }
                 WorkspaceDocumentDiagnosticReport::Full(WorkspaceFullDocumentDiagnosticReport {
                     uri,
                     version: None,
@@ -677,6 +699,13 @@ fn is_template_file(path: &str) -> bool {
     )
 }
 
+fn is_config_file(path: &str) -> bool {
+    matches!(
+        path.rsplit('/').next().unwrap_or(""),
+        "pyproject.toml" | "fastapi-lsp.toml"
+    )
+}
+
 pub(crate) fn is_test_file(uri: &Uri) -> bool {
     let path = uri.path().as_str();
     let filename = path.rsplit('/').next().unwrap_or("");
@@ -760,7 +789,10 @@ async fn publish_diagnostics_for(
     uri: &Uri,
     env_ignore: &[String],
 ) {
-    let diags = crate::features::diagnostics::compute(state, uri, env_ignore);
+    let mut diags = crate::features::diagnostics::compute(state, uri, env_ignore);
+    if let Some(source) = state.file_sources.get(uri) {
+        diags = crate::features::diagnostics::apply_noqa(diags, &source);
+    }
     client.publish_diagnostics(uri.clone(), diags, None).await;
 }
 
@@ -802,7 +834,12 @@ async fn debounce_linker(state: Arc<WorkspaceState>, client: Client) {
             let env_ignore = state.config.read().await.env_ignore.clone();
             for uri_ref in state.file_facts.iter() {
                 let uri = uri_ref.key().clone();
-                let diags = crate::features::diagnostics::compute(&state, &uri, &env_ignore);
+                let mut diags =
+                    crate::features::diagnostics::compute(&state, &uri, &env_ignore);
+                if let Some(source) = state.file_sources.get(&uri) {
+                    diags =
+                        crate::features::diagnostics::apply_noqa(diags, &source);
+                }
                 client.publish_diagnostics(uri, diags, None).await;
             }
 

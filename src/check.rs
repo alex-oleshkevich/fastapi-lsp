@@ -43,7 +43,13 @@ pub async fn run(args: CheckArgs) -> i32 {
             continue;
         }
 
-        let diags = crate::features::diagnostics::compute(&state, &uri, &env_ignore);
+        let raw_diags = crate::features::diagnostics::compute(&state, &uri, &env_ignore);
+        let source = uri
+            .as_str()
+            .strip_prefix("file://")
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default();
+        let diags = crate::features::diagnostics::apply_noqa(raw_diags, &source);
         for d in diags {
             let code = match &d.code {
                 Some(tower_lsp_server::ls_types::NumberOrString::String(s)) => s.as_str(),
