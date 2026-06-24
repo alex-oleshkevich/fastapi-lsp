@@ -925,6 +925,12 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
                     continue;
                 }
                 if let Some(uri) = crate::uri::path_to_uri(path) {
+                    // Cache source text for apply_noqa; skip if already open via did_open.
+                    if !state.open_docs.contains(&uri)
+                        && let Ok(text) = String::from_utf8(bytes.clone())
+                    {
+                        state.file_sources.insert(uri.clone(), text);
+                    }
                     index_file_forced(state, &uri, bytes).await;
                 }
             }
