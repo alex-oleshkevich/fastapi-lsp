@@ -594,12 +594,17 @@ impl LanguageServer for FastApiLsp {
         _params: WorkspaceDiagnosticParams,
     ) -> Result<WorkspaceDiagnosticReportResult> {
         let env_ignore = self.state.config.read().await.env_ignore.clone();
-        let items: Vec<WorkspaceDocumentDiagnosticReport> = self
+        // Collect URIs first: compute() re-locks the same file_facts shard via get(),
+        // which deadlocks if a guard from this iterator is still held (REQ-ARCH-08).
+        let uris: Vec<Uri> = self
             .state
             .file_facts
             .iter()
-            .map(|entry| {
-                let uri = entry.key().clone();
+            .map(|e| e.key().clone())
+            .collect();
+        let items: Vec<WorkspaceDocumentDiagnosticReport> = uris
+            .into_iter()
+            .map(|uri| {
                 let mut diags =
                     crate::features::diagnostics::compute(&self.state, &uri, &env_ignore);
                 if let Some(source) = self.state.file_sources.get(&uri) {
@@ -829,10 +834,12 @@ async fn debounce_linker(state: Arc<WorkspaceState>, client: Client) {
                 continue;
             }
 
-            // Publish diagnostics for all workspace files (REQ-DIAG-01, REQ-ARCH-10)
+            // Publish diagnostics for all workspace files (REQ-DIAG-01, REQ-ARCH-10).
+            // Collect URIs first so no file_facts iterator guard is held while compute()
+            // re-locks the same shard or across the publish await (REQ-ARCH-08 deadlock).
             let env_ignore = state.config.read().await.env_ignore.clone();
-            for uri_ref in state.file_facts.iter() {
-                let uri = uri_ref.key().clone();
+            let uris: Vec<Uri> = state.file_facts.iter().map(|e| e.key().clone()).collect();
+            for uri in uris {
                 let mut diags = crate::features::diagnostics::compute(&state, &uri, &env_ignore);
                 if let Some(source) = state.file_sources.get(&uri) {
                     diags = crate::features::diagnostics::apply_noqa(diags, &source);
@@ -959,10 +966,13 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
             .await;
     }
 
-    // Publish to all workspace files after initial scan (REQ-DIAG-01, REQ-ARCH-10)
+    // Publish to all workspace files after initial scan (REQ-DIAG-01, REQ-ARCH-10).
+    // Collect URIs first so no file_facts iterator guard is held while compute()
+    // re-locks the same shard via file_facts.get() or across the publish await —
+    // that re-entrancy deadlocks under a concurrent writer (REQ-ARCH-08).
     let env_ignore = state.config.read().await.env_ignore.clone();
-    for uri_ref in state.file_facts.iter() {
-        let uri = uri_ref.key().clone();
+    let uris: Vec<Uri> = state.file_facts.iter().map(|e| e.key().clone()).collect();
+    for uri in uris {
         let mut diags = crate::features::diagnostics::compute(state, &uri, &env_ignore);
         if let Some(source) = state.file_sources.get(&uri) {
             diags = crate::features::diagnostics::apply_noqa(diags, &source);

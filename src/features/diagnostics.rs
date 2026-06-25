@@ -64,8 +64,11 @@ pub fn is_env_key_ignored(key: &str, user_ignore: &[String]) -> bool {
 }
 
 pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<Diagnostic> {
+    // Clone out of the DashMap and drop the guard immediately. Holding this `get`
+    // Ref while the body re-locks file_facts via iter()/get() on the same shard
+    // deadlocks under a concurrent writer (parking_lot RwLock is write-preferring).
     let facts = match state.file_facts.get(uri) {
-        Some(f) => f,
+        Some(f) => f.clone(),
         None => return vec![],
     };
     let linked = state.linked.load();
@@ -469,32 +472,46 @@ fn cross_route_diags(
         std::collections::HashSet::new()
     };
 
-    for file_entry in state.file_facts.iter() {
-        if file_entry.key() != uri {
-            continue;
-        }
-        for router in &file_entry.routers {
+    // This file's routers, owned so no file_facts guard is held while we scan all
+    // files for include sites below (nesting iter() inside iter() on the same
+    // DashMap deadlocks under a concurrent writer — REQ-ARCH-08).
+    let routers: Vec<crate::state::RouterDecl> = match state.file_facts.get(uri) {
+        Some(f) => f.routers.clone(),
+        None => vec![],
+    };
+    if !routers.is_empty() {
+        // Names referenced by any include_router(...) across the workspace, with
+        // import aliases resolved to their originals. Built in one pass (no nesting).
+        let included_names: HashSet<String> = state
+            .file_facts
+            .iter()
+            .flat_map(|e| {
+                let facts = e.value();
+                facts
+                    .includes
+                    .iter()
+                    .flat_map(|inc| {
+                        let resolved = facts
+                            .import_alias_originals
+                            .get(&inc.target)
+                            .map(|s| s.to_owned())
+                            .unwrap_or_else(|| inc.target.clone());
+                        [resolved, inc.target.clone()]
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        for router in &routers {
             let suppressed = unresolved_include_targets
                 .iter()
                 .any(|t| t == &router.name || t.ends_with(&format!(".{}", router.name)));
             if suppressed {
                 continue;
             }
-            let has_include = state.file_facts.iter().any(|e| {
-                let facts = e.value();
-                facts.includes.iter().any(|inc| {
-                    // Resolve alias to original name for comparison
-                    let resolved = facts
-                        .import_alias_originals
-                        .get(&inc.target)
-                        .map(|s| s.as_str())
-                        .unwrap_or(inc.target.as_str());
-                    resolved == router.name
-                        || resolved.ends_with(&format!(".{}", router.name))
-                        || inc.target == router.name
-                        || inc.target.ends_with(&format!(".{}", router.name))
-                })
-            });
+            let has_include = included_names
+                .iter()
+                .any(|name| name == &router.name || name.ends_with(&format!(".{}", router.name)));
             if !has_include {
                 diags.push(router_not_included_diag(&router.name, router.range));
             }

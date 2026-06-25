@@ -32,9 +32,11 @@ pub async fn run(args: CheckArgs) -> i32 {
     let mut all_diags: Vec<(String, tower_lsp_server::ls_types::Diagnostic)> = vec![];
     let target_uri_prefix = crate::uri::path_to_uri(&args.path).map(|u| u.as_str().to_owned());
 
-    for entry in state.file_facts.iter() {
-        let uri = entry.key().clone();
-
+    // Collect URIs first: compute() iterates file_facts internally, so holding this
+    // iterator's guard across it would nest same-map iteration (REQ-ARCH-08).
+    let uris: Vec<tower_lsp_server::ls_types::Uri> =
+        state.file_facts.iter().map(|e| e.key().clone()).collect();
+    for uri in uris {
         // When PATH is a single file, only report diagnostics for that file.
         if let Some(ref prefix) = target_uri_prefix
             && args.path.is_file()
