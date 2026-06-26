@@ -52,26 +52,35 @@ pub fn references(
         let name = route.name.clone();
         let route_id = route.id.clone();
 
-        // url_for sites that reference this name
-        for fe in state.file_facts.iter() {
-            let fv = fe.value();
-            for site in &fv.url_for_sites {
-                if site.name == name {
-                    locs.push(LspLocation {
-                        uri: fv.uri.clone(),
-                        range: site.range,
-                    });
-                }
-            }
-        }
+        collect_route_name_refs(state, &name, &route_id, &linked, &mut locs);
+    }
 
-        // Client-call sites from the test_refs index
-        if let Some(sites) = linked.test_refs.get(&route_id) {
-            for site in sites {
-                locs.push(LspLocation {
-                    uri: site.location.uri.clone(),
-                    range: site.location.range,
-                });
+    // References on a route `name=` kwarg string — same set as handler references.
+    // Cursor on `name="foo"` in a decorator → find all url_for("foo") + template sites + test refs.
+    'name_range: {
+        for route in &facts.routes {
+            if let (Some(name), Some(range)) = (&route.route_name, route.route_name_range) {
+                if !position_in_range(pos, range.start, range.end) {
+                    continue;
+                }
+                // Find the route_id by matching handler URI + handler name in linked index.
+                let route_id = linked
+                    .route_index
+                    .values()
+                    .flat_map(|rs| rs.iter())
+                    .find(|r| {
+                        r.handler.uri == *uri
+                            && r.name == *name
+                    })
+                    .map(|r| r.id.clone());
+
+                if let Some(rid) = route_id {
+                    collect_route_name_refs(state, name, &rid, &linked, &mut locs);
+                } else {
+                    // Route not yet linked — still collect url_for + template sites by name.
+                    collect_url_for_refs_by_name(state, name, &mut locs);
+                }
+                break 'name_range;
             }
         }
     }
@@ -144,6 +153,63 @@ pub fn references(
     locs
 }
 
+// ── Shared reference collectors ───────────────────────────────────────────────
+
+/// Collect all url_for/url_path_for call sites (Python files + Jinja templates) with the
+/// given route name, plus test-client call sites, into `locs`.
+fn collect_route_name_refs(
+    state: &WorkspaceState,
+    name: &str,
+    route_id: &crate::state::RouteId,
+    linked: &crate::state::Linked,
+    locs: &mut Vec<LspLocation>,
+) {
+    collect_url_for_refs_by_name(state, name, locs);
+
+    if let Some(sites) = linked.test_refs.get(route_id) {
+        for site in sites {
+            locs.push(LspLocation {
+                uri: site.location.uri.clone(),
+                range: site.location.range,
+            });
+        }
+    }
+}
+
+/// Collect Python + template url_for call sites whose route name matches `name`.
+fn collect_url_for_refs_by_name(
+    state: &WorkspaceState,
+    name: &str,
+    locs: &mut Vec<LspLocation>,
+) {
+    for fe in state.file_facts.iter() {
+        let fv = fe.value();
+        for site in &fv.url_for_sites {
+            if site.name == name {
+                locs.push(LspLocation {
+                    uri: fv.uri.clone(),
+                    range: site.range,
+                });
+            }
+        }
+    }
+    for te in state.template_facts.iter() {
+        let tv = te.value();
+        let tpl_uri = te.key().clone();
+        for site in tv.iter() {
+            if site.name == name {
+                locs.push(LspLocation {
+                    uri: tpl_uri.clone(),
+                    range: Range {
+                        start: site.string_range.start,
+                        end: site.string_range.end,
+                    },
+                });
+            }
+        }
+    }
+}
+
 // ── Edge dispatch ─────────────────────────────────────────────────────────────
 
 enum Edge {
@@ -160,12 +226,31 @@ enum Edge {
 }
 
 fn edge_at(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Edge> {
+    // Template url_for sites (Jinja2 .html files — REQ-TPL-06).
+    // Template files are not in file_facts; they live in state.template_facts.
+    if let Some(tpl_sites) = state.template_facts.get(uri) {
+        for site in tpl_sites.iter() {
+            if position_in_range(pos, site.string_range.start, site.string_range.end) {
+                return Some(Edge::UrlForName(site.name.clone()));
+            }
+        }
+    }
+
     let facts = state.file_facts.get(uri)?;
 
     // url_for call sites
     for site in &facts.url_for_sites {
         if position_in_range(pos, site.range.start, site.range.end) {
             return Some(Edge::UrlForName(site.name.clone()));
+        }
+    }
+
+    // Route `name=` kwarg string in a route decorator — navigate to the named handler.
+    for route in &facts.routes {
+        if let (Some(name), Some(range)) = (&route.route_name, route.route_name_range) {
+            if position_in_range(pos, range.start, range.end) {
+                return Some(Edge::UrlForName(name.clone()));
+            }
         }
     }
 

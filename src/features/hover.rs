@@ -970,6 +970,7 @@ mod tests {
             status_code: None,
             dependencies: vec![],
             route_name: None,
+            route_name_range: None,
             handler_params: vec![],
             handler_param_ranges: vec![],
             params_insert_pos: None,

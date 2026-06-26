@@ -184,6 +184,8 @@ pub struct RouteFact {
     pub status_code: Option<u16>,
     pub dependencies: Vec<String>,
     pub route_name: Option<String>,
+    /// Source range of the `name=` kwarg string literal in the route decorator.
+    pub route_name_range: Option<Range>,
     pub handler_params: Vec<String>,
     /// Per-param source ranges, aligned with `handler_params` (same indices).
     /// Used by the `route/arg-missing-param` rename quick fix.

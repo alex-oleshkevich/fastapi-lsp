@@ -19,3 +19,8 @@ def admin_view(request: Request):
 @app.get("/wrong", response_class=HTMLResponse)
 def wrong_template(request: Request):
     return templates.TemplateResponse(request, "book.html")
+
+
+@app.get("/detail/{item_id}", name="books.detail", response_class=HTMLResponse)
+def book_detail(request: Request, item_id: int):
+    return templates.TemplateResponse(request, "books.html")

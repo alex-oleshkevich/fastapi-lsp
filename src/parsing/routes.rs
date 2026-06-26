@@ -358,7 +358,8 @@ fn try_route_decorator(
         let (response_model, response_model_range) =
             extract_kwarg_string_with_range(src, args, "response_model", enc);
         let dependencies = extract_dependencies_kwarg(src, args);
-        let route_name = extract_kwarg_string(src, args, "name");
+        let (route_name, route_name_range) =
+            extract_kwarg_string_with_range(src, args, "name", enc);
         return Some(RouteFact {
             handler_name: handler_name.to_owned(),
             handler_range,
@@ -373,6 +374,7 @@ fn try_route_decorator(
             status_code: extract_kwarg_u16(src, args, "status_code"),
             dependencies,
             route_name,
+            route_name_range,
             handler_params,
             handler_param_ranges,
             params_insert_pos,
@@ -403,7 +405,7 @@ fn try_route_decorator(
     let (response_model, response_model_range) =
         extract_kwarg_string_with_range(src, args, "response_model", enc);
     let dependencies = extract_dependencies_kwarg(src, args);
-    let route_name = extract_kwarg_string(src, args, "name");
+    let (route_name, route_name_range) = extract_kwarg_string_with_range(src, args, "name", enc);
 
     Some(RouteFact {
         handler_name: handler_name.to_owned(),
@@ -419,6 +421,7 @@ fn try_route_decorator(
         status_code: extract_kwarg_u16(src, args, "status_code"),
         dependencies,
         route_name,
+        route_name_range,
         handler_params,
         handler_param_ranges,
         params_insert_pos,
@@ -613,6 +616,7 @@ fn extract_route_entry(
             status_code: None,
             dependencies: dependencies.clone(),
             route_name: route_name.clone(),
+            route_name_range: None,
             handler_params: vec![],
             handler_param_ranges: vec![],
             params_insert_pos: None,
@@ -649,6 +653,7 @@ fn extract_websocket_route_entry(
         status_code: None,
         dependencies: vec![],
         route_name,
+        route_name_range: None,
         handler_params: vec![],
         handler_param_ranges: vec![],
         params_insert_pos: None,
@@ -751,6 +756,7 @@ fn extract_mount_entry(
                 status_code: None,
                 dependencies: vec![],
                 route_name: mount_name,
+                route_name_range: None,
                 handler_params: vec![],
                 handler_param_ranges: vec![],
                 params_insert_pos: None,
