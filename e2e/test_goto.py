@@ -356,3 +356,36 @@ async def test_references_from_route_name_kwarg_includes_template_url_for(
     assert any("books.html" in u for u in uris), (
         f"template url_for('books.detail') must appear in references, got: {uris}"
     )
+
+
+async def test_references_includes_template_url_for_without_opening_template(
+    client_tpl: pytest_lsp.LanguageClient,
+):
+    """Template url_for sites must appear in references even if the template was never opened.
+
+    The workspace scan must index .html files at startup so template_facts is populated
+    before any didOpen. Before the fix, scan_workspace only walked .py files — templates
+    were only indexed on textDocument/didOpen, so references returned nothing unless the
+    user had already opened the template in the editor.
+    """
+    # Open only the Python file — intentionally do NOT open books.html
+    py_uri = _open_py(client_tpl, TPL_APP_PY)
+    await wait_for_diagnostics(client_tpl, py_uri)
+
+    lines = TPL_APP_PY.read_text().splitlines()
+    line_no = next(i for i, ln in enumerate(lines) if 'name="books.detail"' in ln)
+    col = lines[line_no].index('"books.detail"') + 1
+
+    result = await client_tpl.text_document_references_async(
+        types.ReferenceParams(
+            text_document=types.TextDocumentIdentifier(uri=py_uri),
+            position=types.Position(line=line_no, character=col + 3),
+            context=types.ReferenceContext(include_declaration=False),
+        )
+    )
+    locs = _locs(result)
+    uris = [r.uri if isinstance(r.uri, str) else str(r.uri) for r in locs]
+    assert any("books.html" in u for u in uris), (
+        "template url_for('books.detail') must appear in references without opening "
+        f"the template file first — workspace scan must index .html at startup; got: {uris}"
+    )
