@@ -154,7 +154,7 @@ jobs:
             pkg/aur/PKGBUILD > /tmp/aur/PKGBUILD
 
           docker run --rm -v /tmp/aur:/pkg archlinux:base-devel \
-            bash -c "cd /pkg && makepkg --printsrcinfo > .SRCINFO"
+            bash -c "useradd -m builder && cd /pkg && su builder -c 'makepkg --printsrcinfo' > .SRCINFO"
 
           cd /tmp/aur
           git config user.email "ci@fastapi-lsp.dev"
