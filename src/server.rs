@@ -941,6 +941,11 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
                     index_file_forced(state, &uri, bytes).await;
                 }
             }
+        } else if ext == "html"
+            && let Ok(bytes) = std::fs::read(path)
+            && let Some(uri) = crate::uri::path_to_uri(path)
+        {
+            index_template_file(state, &uri, &bytes);
         } else if is_env_filename(filename)
             && let Ok(src) = std::fs::read_to_string(path)
             && let Some(uri) = crate::uri::path_to_uri(path)
