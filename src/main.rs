@@ -44,14 +44,18 @@ enum Command {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_writer(std::io::stderr)
+        .with_ansi(false)
         .init();
 
     tracing::info!(
-        "{} v{} starting",
+        "{} v{} (built {}) starting",
         env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION")
+        env!("CARGO_PKG_VERSION"),
+        BUILD_TIMESTAMP,
     );
 
     let cli = Cli::parse();
