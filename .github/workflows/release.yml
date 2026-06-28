@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0)"
+        required: true
 
 permissions:
   contents: write
@@ -120,7 +125,7 @@ jobs:
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           GH_REPO: ${{ github.repository }}
-          GH_TAG: ${{ github.ref_name }}
+          GH_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           VERSION="${GH_TAG#v}"
 
@@ -179,4 +184,4 @@ jobs:
       - name: List dist
         run: find dist -type f | sort
       - uses: astral-sh/setup-uv@v4
-      - run: uv publish dist/*.whl
+      - run: uv publish --skip-existing dist/*.whl
