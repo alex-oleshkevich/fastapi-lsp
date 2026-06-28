@@ -1,17 +1,27 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Python artifacts (maturin wheel builds)
+__pycache__/
+*.pyc
+*.pyd
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Misc
+var/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
-
-# Rust build artifacts
-target/
-
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-.ruff_cache/
-
-# Misc
-var/
