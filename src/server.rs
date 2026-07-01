@@ -315,67 +315,7 @@ impl LanguageServer for FastApiLsp {
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
-            // Config file change: reload config and re-run diagnostics.
-            if is_config_file(change.uri.path().as_str()) {
-                let workspace_root = self.state.config.read().await.workspace_root.clone();
-                if let Ok(cfg) =
-                    tokio::task::spawn_blocking(move || crate::config::load(&workspace_root, None))
-                        .await
-                {
-                    *self.state.config.write().await = cfg;
-                    tracing::info!("workspace config reloaded");
-                }
-                self.state.bump_generation();
-                continue;
-            }
-
-            // Template files (HTML/Jinja) don't go through the Python parser.
-            // Only create/delete events change the index (which path exists); modify events
-            // don't change the set of files so they don't need a re-link.
-            if is_template_file(change.uri.path().as_str()) {
-                if change.typ != FileChangeType::CHANGED {
-                    self.state.bump_generation();
-                }
-                continue;
-            }
-
-            // .env* files feed env_file_entries (not the Python parser), so they need
-            // their own create/modify/delete handling. has_indicators() is always false
-            // for env files, so the Python path below would drop them silently.
-            let env_filename = change.uri.path().as_str().rsplit('/').next().unwrap_or("");
-            if is_env_filename(env_filename) {
-                if change.typ == FileChangeType::DELETED {
-                    self.state.env_file_entries.remove(&change.uri);
-                    self.state.bump_generation();
-                } else if !self.state.open_docs.contains(&change.uri) {
-                    // Open buffer is truth: did_change already owns it (REQ-ARCH-12).
-                    if let Some(path) = crate::uri::uri_to_path(&change.uri)
-                        && let Ok(src) = std::fs::read_to_string(&path)
-                    {
-                        index_env_file(&self.state, &change.uri, &src);
-                    }
-                }
-                continue;
-            }
-
-            match change.typ {
-                FileChangeType::DELETED => {
-                    self.state.file_facts.remove(&change.uri);
-                    self.state.bump_generation();
-                }
-                _ => {
-                    // Ignore events for open documents — editor buffer is truth (REQ-ARCH-12)
-                    if self.state.open_docs.contains(&change.uri) {
-                        continue;
-                    }
-                    if let Some(path) = crate::uri::uri_to_path(&change.uri)
-                        && let Ok(bytes) = std::fs::read(&path)
-                        && has_indicators(&bytes)
-                    {
-                        index_file_forced(&self.state, &change.uri, bytes).await;
-                    }
-                }
-            }
+            handle_watched_file_change(&self.state, change).await;
         }
     }
 
@@ -775,6 +715,86 @@ async fn index_text_document(state: &WorkspaceState, uri: &Uri, text: String) {
     }
 }
 
+/// Apply a single watched-file event to workspace state (create/modify/delete).
+/// Client-free so it can be unit-tested directly. Each file class routes to its own
+/// store; open buffers are ignored (the editor buffer is truth, REQ-ARCH-12).
+async fn handle_watched_file_change(
+    state: &WorkspaceState,
+    change: tower_lsp_server::ls_types::FileEvent,
+) {
+    // Config file change: reload config and re-run diagnostics.
+    if is_config_file(change.uri.path().as_str()) {
+        let workspace_root = state.config.read().await.workspace_root.clone();
+        if let Ok(cfg) =
+            tokio::task::spawn_blocking(move || crate::config::load(&workspace_root, None)).await
+        {
+            *state.config.write().await = cfg;
+            tracing::info!("workspace config reloaded");
+        }
+        state.bump_generation();
+        return;
+    }
+
+    // Template files (HTML/Jinja) don't go through the Python parser; their url_for
+    // sites live in template_facts (feeds goto/references). Evict on delete and
+    // re-scan on external modify/create — otherwise template_facts keeps stale sites
+    // pointing at files that changed or no longer exist.
+    if is_template_file(change.uri.path().as_str()) {
+        if change.typ == FileChangeType::DELETED {
+            state.template_facts.remove(&change.uri);
+            state.bump_generation();
+        } else if !state.open_docs.contains(&change.uri) {
+            // Open buffer is truth: did_change already owns it (REQ-ARCH-12).
+            if let Some(path) = crate::uri::uri_to_path(&change.uri)
+                && let Ok(bytes) = std::fs::read(&path)
+            {
+                index_template_file(state, &change.uri, &bytes);
+            }
+        }
+        return;
+    }
+
+    // .env* files feed env_file_entries (not the Python parser), so they need their
+    // own create/modify/delete handling. has_indicators() is always false for env
+    // files, so the Python path below would drop them silently.
+    let env_filename = change.uri.path().as_str().rsplit('/').next().unwrap_or("");
+    if is_env_filename(env_filename) {
+        if change.typ == FileChangeType::DELETED {
+            state.env_file_entries.remove(&change.uri);
+            state.bump_generation();
+        } else if !state.open_docs.contains(&change.uri) {
+            // Open buffer is truth: did_change already owns it (REQ-ARCH-12).
+            if let Some(path) = crate::uri::uri_to_path(&change.uri)
+                && let Ok(src) = std::fs::read_to_string(&path)
+            {
+                index_env_file(state, &change.uri, &src);
+            }
+        }
+        return;
+    }
+
+    match change.typ {
+        FileChangeType::DELETED => {
+            state.file_facts.remove(&change.uri);
+            state.file_sources.remove(&change.uri);
+            state.parse_trees.remove(&change.uri);
+            state.bump_generation();
+        }
+        _ => {
+            // Ignore events for open documents — editor buffer is truth (REQ-ARCH-12)
+            if state.open_docs.contains(&change.uri) {
+                return;
+            }
+            if let Some(path) = crate::uri::uri_to_path(&change.uri)
+                && let Ok(bytes) = std::fs::read(&path)
+                && has_indicators(&bytes)
+            {
+                index_file_forced(state, &change.uri, bytes).await;
+            }
+        }
+    }
+}
+
 /// CPU-bound tree-sitter work runs under spawn_blocking (REQ-ARCH-08).
 async fn index_file_forced(state: &WorkspaceState, uri: &Uri, src: Vec<u8>) {
     let uri_clone = uri.clone();
@@ -1134,6 +1154,58 @@ mod tests {
         assert!(
             !diags.iter().any(|d| d.message.contains("Undefined env key")),
             "FOO must resolve once the .env buffer is indexed — no restart needed"
+        );
+    }
+
+    #[tokio::test]
+    async fn watched_delete_evicts_template_facts() {
+        let state = make_state();
+        let uri = make_uri("/tmp/page.html");
+        index_template_file(&state, &uri, b"{{ url_for('home') }}");
+        assert!(state.template_facts.contains_key(&uri));
+
+        let ev = tower_lsp_server::ls_types::FileEvent {
+            uri: uri.clone(),
+            typ: FileChangeType::DELETED,
+        };
+        handle_watched_file_change(&state, ev).await;
+        assert!(
+            !state.template_facts.contains_key(&uri),
+            "template_facts must be evicted when the template is deleted"
+        );
+    }
+
+    #[tokio::test]
+    async fn watched_delete_evicts_python_stores() {
+        let state = make_state();
+        let uri = make_uri("/tmp/gone.py");
+        // open_docs set so index_file_forced also stores a parse tree.
+        state.open_docs.insert(uri.clone());
+        state
+            .file_sources
+            .insert(uri.clone(), "from fastapi import FastAPI\n".to_owned());
+        index_file_forced(
+            &state,
+            &uri,
+            b"from fastapi import FastAPI\napp = FastAPI()\n".to_vec(),
+        )
+        .await;
+        assert!(state.file_facts.contains_key(&uri));
+        assert!(state.parse_trees.contains_key(&uri));
+
+        let ev = tower_lsp_server::ls_types::FileEvent {
+            uri: uri.clone(),
+            typ: FileChangeType::DELETED,
+        };
+        handle_watched_file_change(&state, ev).await;
+        assert!(!state.file_facts.contains_key(&uri));
+        assert!(
+            !state.file_sources.contains_key(&uri),
+            "file_sources must be evicted on delete (was leaking)"
+        );
+        assert!(
+            !state.parse_trees.contains_key(&uri),
+            "parse_trees must be evicted on delete"
         );
     }
 
