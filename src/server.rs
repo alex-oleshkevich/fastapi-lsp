@@ -204,12 +204,7 @@ impl LanguageServer for FastApiLsp {
 
         self.state.open_docs.insert(uri.clone());
         self.state.file_sources.insert(uri.clone(), text.clone());
-        let bytes = text.into_bytes();
-        if is_template_file(uri.path().as_str()) {
-            index_template_file(&self.state, &uri, &bytes);
-        } else {
-            index_file_forced(&self.state, &uri, bytes).await;
-        }
+        index_text_document(&self.state, &uri, text).await;
         let env_ignore = self.state.config.read().await.env_ignore.clone();
         publish_diagnostics_for(&self.client, &self.state, &uri, &env_ignore).await;
     }
@@ -271,12 +266,7 @@ impl LanguageServer for FastApiLsp {
             .get(&uri)
             .map(|s| s.clone())
             .unwrap_or_default();
-        let bytes = text.into_bytes();
-        if is_template_file(uri.path().as_str()) {
-            index_template_file(&self.state, &uri, &bytes);
-        } else {
-            index_file_forced(&self.state, &uri, bytes).await;
-        }
+        index_text_document(&self.state, &uri, text).await;
         // Debounce task will relink and publish after 300ms (REQ-ARCH-04)
     }
 
@@ -287,7 +277,7 @@ impl LanguageServer for FastApiLsp {
 
         if let Some(text) = params.text {
             self.state.file_sources.insert(uri.clone(), text.clone());
-            index_file_forced(&self.state, &uri, text.into_bytes()).await;
+            index_text_document(&self.state, &uri, text).await;
         }
     }
 
@@ -345,6 +335,25 @@ impl LanguageServer for FastApiLsp {
             if is_template_file(change.uri.path().as_str()) {
                 if change.typ != FileChangeType::CHANGED {
                     self.state.bump_generation();
+                }
+                continue;
+            }
+
+            // .env* files feed env_file_entries (not the Python parser), so they need
+            // their own create/modify/delete handling. has_indicators() is always false
+            // for env files, so the Python path below would drop them silently.
+            let env_filename = change.uri.path().as_str().rsplit('/').next().unwrap_or("");
+            if is_env_filename(env_filename) {
+                if change.typ == FileChangeType::DELETED {
+                    self.state.env_file_entries.remove(&change.uri);
+                    self.state.bump_generation();
+                } else if !self.state.open_docs.contains(&change.uri) {
+                    // Open buffer is truth: did_change already owns it (REQ-ARCH-12).
+                    if let Some(path) = crate::uri::uri_to_path(&change.uri)
+                        && let Ok(src) = std::fs::read_to_string(&path)
+                    {
+                        index_env_file(&self.state, &change.uri, &src);
+                    }
                 }
                 continue;
             }
@@ -751,6 +760,21 @@ pub(crate) fn extract_all_facts(
 }
 
 /// Parse and extract facts from a file unconditionally (didOpen/didChange/didSave).
+/// Route an open/changed document's text to the correct index by filename.
+/// `.env*` → env_file_entries, templates → template index, otherwise Python facts.
+/// Each path bumps the generation so the debounce linker relinks and republishes.
+async fn index_text_document(state: &WorkspaceState, uri: &Uri, text: String) {
+    let path = uri.path().as_str();
+    let filename = path.rsplit('/').next().unwrap_or("");
+    if is_env_filename(filename) {
+        index_env_file(state, uri, &text);
+    } else if is_template_file(path) {
+        index_template_file(state, uri, text.as_bytes());
+    } else {
+        index_file_forced(state, uri, text.into_bytes()).await;
+    }
+}
+
 /// CPU-bound tree-sitter work runs under spawn_blocking (REQ-ARCH-08).
 async fn index_file_forced(state: &WorkspaceState, uri: &Uri, src: Vec<u8>) {
     let uri_clone = uri.clone();
@@ -1081,6 +1105,35 @@ mod tests {
         assert!(
             !state.file_facts.contains_key(&uri),
             "stale facts should be removed when indicators disappear"
+        );
+    }
+
+    #[tokio::test]
+    async fn indexing_env_file_clears_undefined_key_diag() {
+        let state = make_state();
+        let py_uri = make_uri("/tmp/config.py");
+        let src = "from starlette.config import Config\n\
+                   env = Config(env_file=\".env\")\n\
+                   X = env(\"FOO\")\n"
+            .to_owned();
+
+        // Index the Python file that looks up FOO with no default.
+        index_text_document(&state, &py_uri, src).await;
+        crate::linking::relink(&state).await;
+        let diags = crate::features::diagnostics::compute(&state, &py_uri, &[]);
+        assert!(
+            diags.iter().any(|d| d.message.contains("Undefined env key")),
+            "FOO should be undefined before any .env indexes it"
+        );
+
+        // Simulate a live .env edit (didOpen/didChange/didSave path).
+        let env_uri = make_uri("/tmp/.env");
+        index_text_document(&state, &env_uri, "FOO=bar\n".to_owned()).await;
+        crate::linking::relink(&state).await;
+        let diags = crate::features::diagnostics::compute(&state, &py_uri, &[]);
+        assert!(
+            !diags.iter().any(|d| d.message.contains("Undefined env key")),
+            "FOO must resolve once the .env buffer is indexed — no restart needed"
         );
     }
 
