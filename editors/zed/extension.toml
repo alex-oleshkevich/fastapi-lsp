@@ -1,7 +1,7 @@
 id = "fastapi-lsp"
 name = "fastapi-lsp"
 description = "Language server for FastAPI and Starlette"
-version = "0.1.0"
+version = "0.1.1"
 schema_version = 1
 authors = ["Alex Oleshkevich <alex.oleshkevich@gmail.com>"]
 repository = "https://github.com/alex-oleshkevich/fastapi-lsp"
