@@ -1142,7 +1142,9 @@ mod tests {
         crate::linking::relink(&state).await;
         let diags = crate::features::diagnostics::compute(&state, &py_uri, &[]);
         assert!(
-            diags.iter().any(|d| d.message.contains("Undefined env key")),
+            diags
+                .iter()
+                .any(|d| d.message.contains("Undefined env key")),
             "FOO should be undefined before any .env indexes it"
         );
 
@@ -1152,7 +1154,9 @@ mod tests {
         crate::linking::relink(&state).await;
         let diags = crate::features::diagnostics::compute(&state, &py_uri, &[]);
         assert!(
-            !diags.iter().any(|d| d.message.contains("Undefined env key")),
+            !diags
+                .iter()
+                .any(|d| d.message.contains("Undefined env key")),
             "FOO must resolve once the .env buffer is indexed — no restart needed"
         );
     }

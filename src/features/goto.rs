@@ -68,10 +68,7 @@ pub fn references(
                     .route_index
                     .values()
                     .flat_map(|rs| rs.iter())
-                    .find(|r| {
-                        r.handler.uri == *uri
-                            && r.name == *name
-                    })
+                    .find(|r| r.handler.uri == *uri && r.name == *name)
                     .map(|r| r.id.clone());
 
                 if let Some(rid) = route_id {
@@ -177,11 +174,7 @@ fn collect_route_name_refs(
 }
 
 /// Collect Python + template url_for call sites whose route name matches `name`.
-fn collect_url_for_refs_by_name(
-    state: &WorkspaceState,
-    name: &str,
-    locs: &mut Vec<LspLocation>,
-) {
+fn collect_url_for_refs_by_name(state: &WorkspaceState, name: &str, locs: &mut Vec<LspLocation>) {
     for fe in state.file_facts.iter() {
         let fv = fe.value();
         for site in &fv.url_for_sites {
@@ -247,10 +240,10 @@ fn edge_at(state: &WorkspaceState, uri: &Uri, pos: Position) -> Option<Edge> {
 
     // Route `name=` kwarg string in a route decorator — navigate to the named handler.
     for route in &facts.routes {
-        if let (Some(name), Some(range)) = (&route.route_name, route.route_name_range) {
-            if position_in_range(pos, range.start, range.end) {
-                return Some(Edge::UrlForName(name.clone()));
-            }
+        if let (Some(name), Some(range)) = (&route.route_name, route.route_name_range)
+            && position_in_range(pos, range.start, range.end)
+        {
+            return Some(Edge::UrlForName(name.clone()));
         }
     }
 
