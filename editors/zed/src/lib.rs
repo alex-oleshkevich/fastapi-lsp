@@ -29,9 +29,7 @@ impl zed::Extension for FastApiLspExtension {
 
         let binary = worktree
             .which(SERVER_NAME)
-            .ok_or_else(|| {
-                format!("{SERVER_NAME} not found. Download from: https://github.com/alex-oleshkevich/fastapi-lsp/releases")
-            })?;
+            .ok_or_else(binary_not_found_message)?;
         Ok(zed::Command {
             command: binary,
             args: vec!["lsp".to_owned()],
@@ -62,6 +60,18 @@ impl zed::Extension for FastApiLspExtension {
             .unwrap_or_default();
         Ok(Some(settings))
     }
+}
+
+/// Message shown in Zed's LSP logs when the server binary is missing. Kept identical
+/// across all alex-oleshkevich LSP extensions (see the lsp-maker skill). These
+/// extensions never download the binary — the user installs it manually.
+fn binary_not_found_message() -> String {
+    format!(
+        "{SERVER_NAME} was not found on your PATH.\n\
+         This extension does not download it — you must install it manually.\n\
+         Repository: https://github.com/alex-oleshkevich/{SERVER_NAME}\n\
+         Releases:   https://github.com/alex-oleshkevich/{SERVER_NAME}/releases"
+    )
 }
 
 zed::register_extension!(FastApiLspExtension);
