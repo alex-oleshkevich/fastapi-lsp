@@ -1,0 +1,10 @@
+# Merge into ~/.config/helix/languages.toml
+# Order in language-servers matters: pyright first keeps its hover/goto primary.
+
+[language-server.fastapi-lsp]
+command = "fastapi-lsp"
+args = ["lsp"]
+
+[[language]]
+name = "python"
+language-servers = ["pyright", "fastapi-lsp"]
