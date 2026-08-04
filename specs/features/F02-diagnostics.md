@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.3   ·   **Last updated:** 2026-06-12
+> **Version:** 0.4   ·   **Last updated:** 2026-08-04
 >
 > **Purpose:** The framework-semantic checks the server publishes: path-parameter mismatches, duplicate and shadowed routes, and `Depends` misuse — each with a stable code.
 >
@@ -51,6 +51,7 @@ Whenever a check involves a second location, the diagnostic's `relatedInformatio
 | `route/duplicate` | Warning | Two resolved routes share method + identical path pattern (param *names* may differ — `/books/{id}` duplicates `/books/{book_id}`). Trailing slashes are distinct patterns: `/books` and `/books/` never collide. |
 | `route/shadowed` | Warning | A literal-segment route is registered after a param route whose converter accepts the literal text (`/books/{id}` before `/books/featured` — the literal route is unreachable; `/books/{id:int}` shadows nothing non-numeric). |
 | `route/router-not-included` | Warning | An `APIRouter` is defined but no `include_router`/`Mount` anywhere references it — its routes are unreachable. |
+| `route/no-content-return` | Error | A route with literal decorator `status_code=204`, or a direct top-level `response.status_code = 204` assignment, returns a value other than `None`. |
 | `di/depends-called` | Error | `Depends(fn())` where `fn` is provably a dependency, not a factory (the gate is REQ-DIAG-10) — the call's *return value*, produced once at import time, is passed where FastAPI expects the callable itself. The classic footgun. |
 | `di/cycle` | Error | The dependency graph contains a cycle (detail in [F03 §3.4](F03-dependency-graph.md)). |
 | `di/override-unused` | Information | An `app.dependency_overrides` entry whose key is not in the dependency graph — provably stale, typically after a rename (detail in [F03](F03-dependency-graph.md)). |
@@ -106,6 +107,10 @@ A call inside `Depends(...)` proves nothing by itself. `Depends(require_role("ad
 
 So the check fires only when the called name resolves to a workspace function that is provably a dependency itself: it contains `yield` (a generator dependency's return value can never stand in for the callable), or it appears elsewhere in the workspace as a bare `Depends(name)` (the codebase itself treats it as the dependency). Unresolvable callees and factory-shaped functions stay silent (P4).
 
+**REQ-DIAG-22 — `route/no-content-return` rejects response content for statically-known 204 views.**
+
+The check fires once per non-`None` return expression when a recognized route decorator has literal `status_code=204`, including `api_route`, or the view body directly assigns literal `204` to `response.status_code`. Bare `return`, `return None`, implicit fallthrough, raises, and returns inside nested functions are clean. A status assignment nested under `if`, loops, `try`, `with`, or another compound statement is flow-dependent and produces no finding. Stacked route decorators share one view-response fact, so a return receives one diagnostic even when several decorators use 204. The squiggle covers the returned expression.
+
 ## 4. Examples & Use Cases
 
 One worked example per code. The `~~~` marker shows where the squiggle lands; the comment is the message.
@@ -143,6 +148,12 @@ def legacy(): ...
 # route/router-not-included — the assignment is squiggled
 admin_router = APIRouter(prefix="/admin")
 # ~~~~~~~~~~~~  router is never included: no include_router or Mount references it
+
+# route/no-content-return — the returned response content is squiggled
+@router.delete("/{book_id}", status_code=204)
+def delete_book(book_id: int):
+    return {"deleted": book_id}
+#          ~~~~~~~~~~~~~~~~~~~~  HTTP 204 No Content route must return None
 
 # di/depends-called — the call is squiggled
 def list_books(db = Depends(get_db())):
@@ -221,6 +232,7 @@ Files: `features/diagnostics.rs` (dispatch, `Finding → lsp_types::Diagnostic`)
 
 ## 8. Changelog
 
+- **2026-08-04** — Added `route/no-content-return` (REQ-DIAG-22): literal decorator and unconditional response assignments require `None`; conditional assignments stay silent.
 - **2026-06-12** — v0.3 review pass (P4 compliance): `route/arg-missing-param` narrowed to a rename near-miss heuristic at Hint severity (a required no-default param is an idiomatic query parameter); `di/depends-called` gated on proof the callee is a dependency (REQ-DIAG-10) — factories stay silent; `route/param-missing-arg` searches dependency signatures and drops to Warning; `route/shadowed` converter-aware with the E07 registration ordinal; `route/duplicate` treats trailing slashes as distinct patterns; `model/unknown-response-model` handles subscripted generics and bare return annotations; `env/undefined-key` OS/CI allowlist; REQ-DIAG-06 gate narrowed to unnamed/unresolvable mounts; new `di/override-unused`; diagnostics workspace-scoped with always-publish-on-open; `data` payloads downgraded to optimization (REQ-DIAG-09).
 - **2026-06-12** — Added `route/router-not-included` (REQ-DIAG-08, with `__all__` and unresolved-include suppressions); §4 expanded into a worked example per code with squiggle positions and messages.
 - **2026-06-12** — Doc-verification fixes: precise `di/depends-called` failure mode; `route/duplicate-name` scoped to same-namespace collisions (named Mounts qualify names).

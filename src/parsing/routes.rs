@@ -5,7 +5,8 @@ use tree_sitter::{Node, Tree};
 
 use super::unquote;
 use crate::state::{
-    AppDecl, FileFacts, IncludeCall, Method, PrefixValue, RouteFact, RouterDecl, range_from_node,
+    AppDecl, FileFacts, IncludeCall, Method, PrefixValue, RouteFact, RouterDecl, ViewResponseFact,
+    range_from_node,
 };
 
 const ROUTE_METHODS: &[&str] = &[
@@ -175,6 +176,7 @@ fn extract_decorated_definition(
         extract_handler_params(src, func, enc);
     let return_annotation = extract_return_annotation(src, func);
 
+    let mut routes = vec![];
     for decorator in decorators {
         // decorator → '@' expr  (the expr is the second child)
         let expr = match decorator.child(1) {
@@ -195,9 +197,93 @@ fn extract_decorated_definition(
             enc,
         ) {
             route.return_annotation = return_annotation.clone();
-            facts.routes.push(route);
+            routes.push(route);
         }
     }
+
+    if routes.is_empty() {
+        return;
+    }
+
+    facts.view_responses.push(ViewResponseFact {
+        has_no_content_status: routes.iter().any(|route| route.status_code == Some(204))
+            || has_unconditional_no_content_status(src, func),
+        non_none_return_ranges: extract_non_none_return_ranges(src, func, enc),
+    });
+    facts.routes.extend(routes);
+}
+
+fn has_unconditional_no_content_status(src: &[u8], func: Node<'_>) -> bool {
+    let Some(body) = func.child_by_field_name("body") else {
+        return false;
+    };
+    let mut cursor = body.walk();
+    body.named_children(&mut cursor)
+        .filter_map(|statement| match statement.kind() {
+            "assignment" => Some(statement),
+            "expression_statement" => statement
+                .named_child(0)
+                .filter(|child| child.kind() == "assignment"),
+            _ => None,
+        })
+        .any(|assignment| {
+            let Some(left) = assignment.child_by_field_name("left") else {
+                return false;
+            };
+            let Some(right) = assignment.child_by_field_name("right") else {
+                return false;
+            };
+            if left.kind() != "attribute" || node_text(src, right) != "204" {
+                return false;
+            }
+            let object = left.child_by_field_name("object");
+            let attribute = left.child_by_field_name("attribute");
+            object.is_some_and(|node| node_text(src, node) == "response")
+                && attribute.is_some_and(|node| node_text(src, node) == "status_code")
+        })
+}
+
+fn extract_non_none_return_ranges(
+    src: &[u8],
+    func: Node<'_>,
+    enc: crate::offset::Encoding,
+) -> Vec<Range> {
+    let Some(body) = func.child_by_field_name("body") else {
+        return vec![];
+    };
+    let mut ranges = vec![];
+    collect_non_none_return_ranges(src, body, enc, &mut ranges);
+    ranges
+}
+
+fn collect_non_none_return_ranges(
+    src: &[u8],
+    node: Node<'_>,
+    enc: crate::offset::Encoding,
+    ranges: &mut Vec<Range>,
+) {
+    match node.kind() {
+        "return_statement" => {
+            if let Some(value) = node.named_child(0)
+                && !is_none_literal(value)
+            {
+                ranges.push(range_from_node(value, src, enc));
+            }
+        }
+        "function_definition" | "async_function_definition" | "class_definition" | "lambda" => {}
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                collect_non_none_return_ranges(src, child, enc, ranges);
+            }
+        }
+    }
+}
+
+fn is_none_literal(node: Node<'_>) -> bool {
+    node.kind() == "none"
+        || node.kind() == "parenthesized_expression"
+            && node.named_child(0).is_some_and(is_none_literal)
 }
 
 /// Extract the bare identifier from the `-> T` return annotation of a function definition.
@@ -1949,5 +2035,112 @@ class MyView:
             facts.routes[0].object_name, "self.router",
             "route object_name must be 'self.router'"
         );
+    }
+
+    #[test]
+    fn decorator_status_204_captures_non_none_return() {
+        let facts = run(r#"
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.delete("/items/{item_id}", status_code=204)
+def delete_item(item_id: int):
+    return {"item_id": item_id}
+"#);
+
+        assert_eq!(facts.view_responses.len(), 1);
+        let response = &facts.view_responses[0];
+        assert!(response.has_no_content_status);
+        assert_eq!(response.non_none_return_ranges.len(), 1);
+    }
+
+    #[test]
+    fn no_content_view_accepts_none_returns_and_ignores_nested_functions() {
+        let facts = run(r#"
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.delete("/items/{item_id}", status_code=204)
+def delete_item(item_id: int):
+    def audit():
+        return {"item_id": item_id}
+    if item_id < 0:
+        return None
+    if item_id == 0:
+        return
+    if item_id == 1:
+        return (None)
+"#);
+
+        assert_eq!(facts.view_responses.len(), 1);
+        assert!(facts.view_responses[0].non_none_return_ranges.is_empty());
+    }
+
+    #[test]
+    fn unconditional_response_status_204_marks_view_as_no_content() {
+        let facts = run(r#"
+from fastapi import FastAPI, Response
+app = FastAPI()
+
+@app.delete("/items/{item_id}")
+def delete_item(item_id: int, response: Response):
+    response.status_code = 204
+    return {"item_id": item_id}
+"#);
+
+        assert_eq!(facts.view_responses.len(), 1);
+        assert!(facts.view_responses[0].has_no_content_status);
+        assert_eq!(facts.view_responses[0].non_none_return_ranges.len(), 1);
+    }
+
+    #[test]
+    fn conditional_response_status_204_does_not_mark_view_as_no_content() {
+        let facts = run(r#"
+from fastapi import FastAPI, Response
+app = FastAPI()
+
+@app.delete("/items/{item_id}")
+def delete_item(item_id: int, response: Response):
+    if item_id == 0:
+        response.status_code = 204
+        return None
+    return {"item_id": item_id}
+"#);
+
+        assert_eq!(facts.view_responses.len(), 1);
+        assert!(!facts.view_responses[0].has_no_content_status);
+    }
+
+    #[test]
+    fn api_route_status_204_marks_view_as_no_content() {
+        let facts = run(r#"
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.api_route("/items/{item_id}", methods=["DELETE"], status_code=204)
+def delete_item(item_id: int):
+    return {"item_id": item_id}
+"#);
+
+        assert_eq!(facts.view_responses.len(), 1);
+        assert!(facts.view_responses[0].has_no_content_status);
+        assert_eq!(facts.view_responses[0].non_none_return_ranges.len(), 1);
+    }
+
+    #[test]
+    fn stacked_route_decorators_produce_one_view_response_fact() {
+        let facts = run(r#"
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.delete("/items/{item_id}", status_code=204)
+@app.post("/items/{item_id}/delete", status_code=204)
+def delete_item(item_id: int):
+    return {"item_id": item_id}
+"#);
+
+        assert_eq!(facts.routes.len(), 2);
+        assert_eq!(facts.view_responses.len(), 1);
+        assert_eq!(facts.view_responses[0].non_none_return_ranges.len(), 1);
     }
 }

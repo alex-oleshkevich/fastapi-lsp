@@ -15,6 +15,8 @@ from pathlib import Path
 SERVER_BIN = Path(__file__).parent.parent / "target" / "debug" / "fastapi-lsp"
 BOOKSHOP = Path(__file__).parent / "fixtures" / "bookshop"
 BROKEN = BOOKSHOP / "app" / "routers" / "broken_routes.py"
+DIAGNOSTICS = Path(__file__).parent / "fixtures" / "diagnostics"
+DIAGNOSTICS_APP = DIAGNOSTICS / "app.py"
 
 
 def run_check(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -151,6 +153,21 @@ def test_ignore_filter_removes_code():
     # If full run had route/duplicate, filtered run must not have it.
     if "route/duplicate" in full_codes:
         assert "route/duplicate" not in filtered_codes
+
+
+def test_no_content_return_cli_parity():
+    """The CLI emits the same two no-content findings as LSP mode."""
+    result = run_check(
+        str(DIAGNOSTICS_APP),
+        "--only", "route/no-content-return",
+        "--format", "json",
+        cwd=DIAGNOSTICS,
+    )
+    findings = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert result.returncode == 1, result.stderr
+    assert len(findings) == 2
+    assert all(item["code"] == "route/no-content-return" for item in findings)
+    assert all(item["severity"] == "error" for item in findings)
 
 
 # ── Parity: same codes as LSP mode (REQ-CLI-04) ───────────────────────────────

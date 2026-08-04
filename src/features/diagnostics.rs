@@ -105,6 +105,18 @@ pub fn compute(state: &WorkspaceState, uri: &Uri, env_ignore: &[String]) -> Vec<
         }
     }
 
+    for view in &facts.view_responses {
+        if !view.has_no_content_status {
+            continue;
+        }
+        diags.extend(
+            view.non_none_return_ranges
+                .iter()
+                .copied()
+                .map(no_content_return_diag),
+        );
+    }
+
     for dep_ref in &facts.dep_refs {
         if dep_ref.is_called
             && !dep_ref.name.is_empty()
@@ -397,6 +409,17 @@ pub fn url_param_mismatch_diag(
         code: Some(NumberOrString::String("url/param-mismatch".to_owned())),
         source: Some("fastapi-lsp".to_owned()),
         message: format!("Wrong url_for arguments for {name}: {}.", parts.join("; ")),
+        ..Default::default()
+    }
+}
+
+fn no_content_return_diag(range: Range) -> Diagnostic {
+    Diagnostic {
+        range,
+        severity: Some(DiagnosticSeverity::ERROR),
+        code: Some(NumberOrString::String("route/no-content-return".to_owned())),
+        source: Some("fastapi-lsp".to_owned()),
+        message: "HTTP 204 No Content route must return None.".to_owned(),
         ..Default::default()
     }
 }
@@ -1265,7 +1288,7 @@ mod tests {
     use super::*;
     use crate::state::{
         FileFacts, Linked, Location as StateLocation, Method, PathConverter, PathParam, RouteId,
-        WorkspaceState,
+        ViewResponseFact, WorkspaceState,
     };
     use std::sync::Arc;
 
@@ -1329,6 +1352,38 @@ mod tests {
             d.code,
             Some(NumberOrString::String("env/undefined-key".to_owned()))
         );
+    }
+
+    #[test]
+    fn no_content_view_with_value_return_emits_error() {
+        use tower_lsp_server::ls_types::Position;
+
+        let uri: Uri = "file:///app.py".parse().unwrap();
+        let range = Range {
+            start: Position::new(6, 11),
+            end: Position::new(6, 31),
+        };
+        let state = WorkspaceState::new(crate::config::ResolvedConfig::default_for_root(
+            std::path::PathBuf::from("/tmp"),
+        ));
+        let mut facts = FileFacts::new(uri.clone());
+        facts.view_responses.push(ViewResponseFact {
+            has_no_content_status: true,
+            non_none_return_ranges: vec![range],
+        });
+        state.file_facts.insert(uri.clone(), facts);
+
+        let diags = compute(&state, &uri, &[]);
+
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].range, range);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String("route/no-content-return".to_owned()))
+        );
+        assert!(diags[0].message.contains("204"));
+        assert!(diags[0].message.contains("None"));
     }
 
     #[test]

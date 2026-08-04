@@ -18,6 +18,7 @@ pub struct FileFacts {
     pub routers: Vec<RouterDecl>,
     pub includes: Vec<IncludeCall>,
     pub routes: Vec<RouteFact>,
+    pub view_responses: Vec<ViewResponseFact>,
     pub dep_defs: Vec<DepDef>,
     pub dep_refs: Vec<DepRef>,
     pub templates: Vec<TemplateRef>,
@@ -65,6 +66,7 @@ impl FileFacts {
             routers: vec![],
             includes: vec![],
             routes: vec![],
+            view_responses: vec![],
             dep_defs: vec![],
             dep_refs: vec![],
             templates: vec![],
@@ -195,6 +197,12 @@ pub struct RouteFact {
     pub params_insert_pos: Option<tower_lsp_server::ls_types::Position>,
     pub handler_has_splat_args: bool,
     pub handler_params_known: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ViewResponseFact {
+    pub has_no_content_status: bool,
+    pub non_none_return_ranges: Vec<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

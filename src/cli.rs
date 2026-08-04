@@ -66,6 +66,7 @@ pub const KNOWN_CODES: &[&str] = &[
     "route/param-missing-arg",
     "route/arg-missing-param",
     "route/router-not-included",
+    "route/no-content-return",
     "url/unknown-name",
     "url/param-mismatch",
     "model/unknown-response-model",
@@ -124,5 +125,6 @@ mod tests {
         assert!(KNOWN_CODES.contains(&"tpl/missing-template"));
         assert!(KNOWN_CODES.contains(&"di/cycle"));
         assert!(KNOWN_CODES.contains(&"url/unknown-name"));
+        assert!(KNOWN_CODES.contains(&"route/no-content-return"));
     }
 }

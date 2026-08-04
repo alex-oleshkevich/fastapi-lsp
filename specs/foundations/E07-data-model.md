@@ -76,6 +76,7 @@ pub struct FileFacts {
     pub routers:       Vec<RouterDecl>,     // APIRouter(prefix=..., tags=...)
     pub includes:      Vec<IncludeCall>,    // include_router(target, prefix=...)
     pub routes:        Vec<RouteFact>,      // decorator or Route()/Mount() table entry
+    pub view_responses: Vec<ViewResponseFact>, // route-view status and return facts
     pub dep_defs:      Vec<DepDef>,         // functions referenced by some Depends
     pub dep_refs:      Vec<DepRef>,         // each Depends(name) site
     pub templates:     Vec<TemplateRef>,    // TemplateResponse / get_template strings
@@ -87,6 +88,8 @@ pub struct FileFacts {
 ```
 
 A `RouteFact` carries the decorator path *as written* (`/{book_id}`), the methods, the handler's name and range, the kwargs that matter (`response_model`, `status_code`, `dependencies`), and the name of the object it was registered on (`app`, `router`). Prefix values that aren't string literals are looked up among module-level string constants; failing that they're stored as `PrefixValue::Unresolved`.
+
+A `ViewResponseFact` is emitted once per decorated route handler, even when decorators are stacked. It records whether the view has a statically-known 204 status and the ranges of explicit return values other than `None`; local response diagnostics consume it directly without adding per-handler data to every mounted `RouteRecord`.
 
 ### 3.3 Linked indices (pass-2 output)
 

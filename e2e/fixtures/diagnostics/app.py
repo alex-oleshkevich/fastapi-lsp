@@ -1,6 +1,6 @@
 """Fixture covering diagnostic codes not present in bookshop/broken_routes.py."""
 import os
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, Response
 
 app = FastAPI()
 
@@ -61,6 +61,33 @@ def handler_typo_arg(book_idd: int):
 @router_a.get("/model", response_model="UnknownModel")
 def handler_unknown_model():
     return {}
+
+
+# route/no-content-return: HTTP 204 handlers cannot return response content
+@app.delete("/decorator-no-content", status_code=204)
+def decorator_no_content():
+    return {"deleted": True}
+
+
+@app.delete("/response-no-content")
+def response_no_content(response: Response):
+    response.status_code = 204
+    return {"deleted": True}
+
+
+# Conditional status changes do not trigger this lint
+@app.delete("/conditional-no-content")
+def conditional_no_content(response: Response):
+    if response.headers:
+        response.status_code = 204
+        return None
+    return {"deleted": False}
+
+
+# Literal None is a valid response for a decorator-level 204
+@app.delete("/valid-no-content", status_code=204)
+def valid_no_content():
+    return None
 
 
 app.include_router(router_a)

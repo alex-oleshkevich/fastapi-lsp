@@ -180,6 +180,32 @@ async def test_model_unknown_response_model(client_diag: pytest_lsp.LanguageClie
     assert "UnknownModel" in d.message
 
 
+async def test_route_no_content_return(client_diag: pytest_lsp.LanguageClient):
+    """route/no-content-return: decorator and response assignments share one rule."""
+    uri = _open(client_diag, DIAG_APP)
+    diags = await wait_for_diagnostics(client_diag, uri)
+    matches = [
+        d
+        for d in diags
+        if isinstance(d.code, str) and d.code == "route/no-content-return"
+    ]
+    assert len(matches) == 2, (
+        f"expected decorator and response assignment findings, got: "
+        f"{[(x.code, x.range.start.line) for x in diags]}"
+    )
+    assert all(d.severity == types.DiagnosticSeverity.Error for d in matches)
+    assert all("204" in d.message and "None" in d.message for d in matches)
+    assert {
+        (
+            d.range.start.line,
+            d.range.start.character,
+            d.range.end.line,
+            d.range.end.character,
+        )
+        for d in matches
+    } == {(68, 11, 68, 28), (74, 11, 74, 28)}
+
+
 async def test_route_param_missing_arg(client_bookshop: pytest_lsp.LanguageClient):
     """route/param-missing-arg: path {book_id} not bound by handler in broken_routes.py."""
     uri = _open(client_bookshop, BROKEN)
