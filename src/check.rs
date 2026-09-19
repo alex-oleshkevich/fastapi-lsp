@@ -488,15 +488,10 @@ pub async fn scan(state: &Arc<WorkspaceState>, root: &std::path::Path) {
     for entry in walkdir::WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            !e.path().components().any(|c| {
-                matches!(
-                    c.as_os_str().to_str(),
-                    Some(".venv") | Some("__pycache__") | Some(".git")
-                )
-            })
+        .filter_entry(|entry| {
+            !entry.file_type().is_dir() || !crate::server::is_ignored_scan_directory(entry.path())
         })
+        .filter_map(|e| e.ok())
     {
         let path = entry.path();
         let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("");
@@ -536,6 +531,7 @@ pub async fn scan(state: &Arc<WorkspaceState>, root: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::is_ignored_scan_directory;
     use tower_lsp_server::ls_types::{
         Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range,
     };
@@ -552,6 +548,19 @@ mod tests {
             message: format!("test diagnostic for {code}"),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn scan_skips_generated_and_dependency_directories() {
+        assert!(is_ignored_scan_directory(std::path::Path::new(
+            "/project/frontend/node_modules"
+        )));
+        assert!(is_ignored_scan_directory(std::path::Path::new(
+            "/project/.claude"
+        )));
+        assert!(!is_ignored_scan_directory(std::path::Path::new(
+            "/project/src"
+        )));
     }
 
     #[test]

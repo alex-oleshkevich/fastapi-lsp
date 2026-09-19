@@ -23,6 +23,27 @@ const INDICATORS: &[&str] = &[
     "url_for",
 ];
 
+const IGNORED_SCAN_DIRECTORIES: &[&str] = &[
+    ".beads",
+    ".claude",
+    ".codegraph",
+    ".git",
+    ".mypy_cache",
+    ".playwright-mcp",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "target",
+];
+
+pub(crate) fn is_ignored_scan_directory(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| IGNORED_SCAN_DIRECTORIES.contains(&name))
+}
+
 pub struct FastApiLsp {
     client: Client,
     state: Arc<WorkspaceState>,
@@ -952,16 +973,10 @@ async fn scan_workspace(state: &Arc<WorkspaceState>, client: &Client) {
     let entries: Vec<_> = walkdir::WalkDir::new(&root)
         .follow_links(false)
         .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let skip = e.path().components().any(|c| {
-                matches!(
-                    c.as_os_str().to_str(),
-                    Some(".venv") | Some("__pycache__") | Some(".git")
-                )
-            });
-            !skip
+        .filter_entry(|entry| {
+            !entry.file_type().is_dir() || !is_ignored_scan_directory(entry.path())
         })
+        .filter_map(|e| e.ok())
         .collect();
 
     for entry in entries {

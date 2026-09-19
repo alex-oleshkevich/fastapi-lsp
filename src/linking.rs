@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tower_lsp_server::ls_types::Uri;
@@ -437,7 +437,13 @@ impl LinkContext {
             PrefixValue::Literal(p) => p.clone(),
             PrefixValue::Unresolved => return vec![ResolvedPath::Unresolved],
         };
-        self.resolve_paths_from(object_name, route_uri, vec![route_segment], 0)
+        self.resolve_paths_from(
+            object_name,
+            route_uri,
+            vec![route_segment],
+            0,
+            &mut HashSet::new(),
+        )
     }
 
     /// Find the router declaration for `name`, preferring `prefer_uri` when
@@ -462,6 +468,7 @@ impl LinkContext {
         prefer_uri: &Uri,
         segments: Vec<String>,
         depth: usize,
+        visiting: &mut HashSet<(String, Uri)>,
     ) -> Vec<ResolvedPath> {
         if depth > 32 {
             return vec![ResolvedPath::Unresolved];
@@ -473,6 +480,11 @@ impl LinkContext {
             return vec![ResolvedPath::Resolved(join_path_segments(&rev))];
         }
 
+        let key = (object_name.to_owned(), prefer_uri.clone());
+        if !visiting.insert(key.clone()) {
+            return vec![ResolvedPath::Unresolved];
+        }
+
         // Push the router's own prefix before climbing to its include sites
         let mut segments = segments;
         if let Some(router) = self.find_router(object_name, prefer_uri) {
@@ -482,12 +494,16 @@ impl LinkContext {
                         segments.push(p.clone());
                     }
                 }
-                PrefixValue::Unresolved => return vec![ResolvedPath::Unresolved],
+                PrefixValue::Unresolved => {
+                    visiting.remove(&key);
+                    return vec![ResolvedPath::Unresolved];
+                }
             }
         }
 
         let Some(includes) = self.includes_by_target.get(object_name) else {
             // Router not yet included anywhere (REQ-ROUTE-05)
+            visiting.remove(&key);
             return vec![ResolvedPath::Unresolved];
         };
 
@@ -511,9 +527,16 @@ impl LinkContext {
                 continue;
             }
             // The include call's app_name refers to a name in inc_uri's file
-            results.extend(self.resolve_paths_from(&inc.app_name, inc_uri, branch, depth + 1));
+            results.extend(self.resolve_paths_from(
+                &inc.app_name,
+                inc_uri,
+                branch,
+                depth + 1,
+                visiting,
+            ));
         }
 
+        visiting.remove(&key);
         if results.is_empty() {
             vec![ResolvedPath::Unresolved]
         } else {
@@ -1656,6 +1679,27 @@ mod tests {
         );
         assert_eq!(paths.len(), 1);
         assert!(matches!(paths[0], ResolvedPath::Unresolved));
+    }
+
+    #[test]
+    fn route_path_cycle_does_not_expand_exponentially() {
+        let ctx = make_ctx(
+            &[("router", "/api")],
+            &[],
+            &[("router", "/one", "router"), ("router", "/two", "router")],
+        );
+        let paths = ctx.resolve_route_paths(
+            &make_uri("file:///app/router.py"),
+            "router",
+            &PrefixValue::Literal("/items".into()),
+        );
+
+        assert_eq!(paths.len(), 4);
+        assert!(
+            paths
+                .iter()
+                .all(|path| matches!(path, ResolvedPath::Unresolved))
+        );
     }
 
     // ── Trie tests ────────────────────────────────────────────────────────────
