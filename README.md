@@ -93,6 +93,7 @@ Zero config for standard projects. Priority: `InitializationOptions` › `fastap
 | `process_env_show_values` | `false` | show process-env values in hover |
 | `client_fixtures` | `["client", "async_client"]` | pytest HTTP client fixture names |
 | `env.ignore` | `[]` | env keys to suppress from diagnostics |
+| `scan.ignore` | `[".beads", ".claude", ".codegraph", ".git", ".mypy_cache", ".playwright-mcp", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__", "node_modules", "target"]` | directory names excluded from workspace scans (replaces, not extends, the default) |
 
 Feature toggles — all `true` by default except `test_unknown_paths`:
 
@@ -120,6 +121,9 @@ code_lens = false
 [check]
 only = []
 ignore = ["env/undefined-key"]
+
+[scan]
+ignore = [".beads", ".claude", ".codegraph", ".git", ".mypy_cache", ".playwright-mcp", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__", "node_modules", "target", ".worktrees"]
 ```
 
 ## CLI

@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Version:** 0.3   ·   **Last updated:** 2026-06-12
+> **Version:** 0.4   ·   **Last updated:** 2026-09-21
 >
 > **Purpose:** Where the server's configuration comes from — initialization options, the server's own config file, `pyproject.toml` — the schema they share, and the precedence between them.
 >
@@ -47,6 +47,9 @@ process_env = false                      # consult the server's own process env 
 process_env_show_values = false          # show process-env values in hover (masked by default)
 client_fixtures = ["client", "async_client"]   # test-client fixture names (F04)
 env.ignore = []                          # extra keys env/undefined-key never flags (F09)
+scan.ignore = [".beads", ".claude", ".codegraph", ".git", ".mypy_cache",
+               ".playwright-mcp", ".pytest_cache", ".ruff_cache", ".venv",
+               "__pycache__", "node_modules", "target"]   # directory names excluded from workspace scans (§2.7)
 
 [features]                               # per-capability toggles, all true by default
 diagnostics = true
@@ -111,6 +114,10 @@ Two escape hatches for projects whose layout or test style defeats the defaults.
 
 A malformed config file or missing referenced path logs a warning (stderr, via `tracing`) and falls back to the next source. Unknown keys are ignored without complaint. Config files are watched (REQ-ARCH-12); a change re-resolves config and triggers a relink.
 
+### 2.7 Scan directory ignore list
+
+**`scan.ignore`** names the directories the workspace scan never descends into (`fastapi-lsp check` and the LSP's initial index alike). Unlike `env.ignore`, this key *replaces* the built-in default rather than extending it — the shipped default already covers the common cases (`.git`, `.venv`, `node_modules`, `target`, caches, and this server's own tool directories); a project setting `scan.ignore` should restate the entries it still wants alongside its addition. The typical reason to set it: a workspace with in-tree git worktree checkouts (e.g. `.worktrees/<branch>/`) — left unignored, the scanner indexes the same routers twice under different paths and the duplicate-route/shadowed-route diagnostics fire spuriously across what are really two independent checkouts.
+
 ## 3. Edge Cases & Failure Modes
 
 - The same key set in all three sources → InitializationOptions wins, per key (a file setting `templates` and the editor setting only `features.code_lens` merge cleanly).
@@ -130,6 +137,7 @@ A malformed config file or missing referenced path logs a warning (stderr, via `
 
 ## 6. Changelog
 
+- **2026-09-21** — v0.4: New key `scan.ignore` (§2.7) — the workspace-scan directory ignore list, previously a hardcoded constant, is now configurable and defaults to the same set. Fixes false-positive duplicate/shadowed-route diagnostics on workspaces with in-tree git worktree checkouts.
 - **2026-06-12** — v0.3: REQ-CFG-06 — `didChangeConfiguration` merges at the session tier, latest wins, no `workspace/configuration` pull. Capability advertisement is fixed per session; mid-session toggle flips short-circuit handlers, no re-advertisement. `[features]` gains `symbols`/`navigation`/`document_links`. New keys: `source_roots`, `client_fixtures`, `env.ignore`.
 - **2026-06-12** — v0.2: full config system — three sources with per-key precedence (REQ-CFG-04), `[features]` toggles (resolves OQ-CFG-2), configurable `env_files` + opt-in `process_env` (REQ-CFG-05), `[check]` defaults. Dropped the `jinja.toml` source in favor of the unified schema.
 - **2026-06-12** — Doc-verification fix: `Jinja2Templates(directory=...)` accepts a sequence of directories.

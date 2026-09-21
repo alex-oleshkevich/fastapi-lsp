@@ -483,13 +483,17 @@ pub fn find_workspace_root(path: &std::path::Path) -> PathBuf {
 }
 
 pub async fn scan(state: &Arc<WorkspaceState>, root: &std::path::Path) {
-    let client_fixtures = state.config.read().await.client_fixtures.clone();
+    let (client_fixtures, scan_ignore) = {
+        let cfg = state.config.read().await;
+        (cfg.client_fixtures.clone(), cfg.scan_ignore.clone())
+    };
     let enc = crate::offset::Encoding::Utf8;
     for entry in walkdir::WalkDir::new(root)
         .follow_links(false)
         .into_iter()
         .filter_entry(|entry| {
-            !entry.file_type().is_dir() || !crate::server::is_ignored_scan_directory(entry.path())
+            !entry.file_type().is_dir()
+                || !crate::server::is_ignored_scan_directory(entry.path(), &scan_ignore)
         })
         .filter_map(|e| e.ok())
     {
@@ -552,15 +556,35 @@ mod tests {
 
     #[test]
     fn scan_skips_generated_and_dependency_directories() {
-        assert!(is_ignored_scan_directory(std::path::Path::new(
-            "/project/frontend/node_modules"
-        )));
-        assert!(is_ignored_scan_directory(std::path::Path::new(
-            "/project/.claude"
-        )));
-        assert!(!is_ignored_scan_directory(std::path::Path::new(
-            "/project/src"
-        )));
+        let ignore = crate::config::DEFAULT_IGNORED_SCAN_DIRECTORIES
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect::<Vec<_>>();
+        assert!(is_ignored_scan_directory(
+            std::path::Path::new("/project/frontend/node_modules"),
+            &ignore
+        ));
+        assert!(is_ignored_scan_directory(
+            std::path::Path::new("/project/.claude"),
+            &ignore
+        ));
+        assert!(!is_ignored_scan_directory(
+            std::path::Path::new("/project/src"),
+            &ignore
+        ));
+    }
+
+    #[test]
+    fn scan_respects_configured_worktree_ignore() {
+        let ignore = vec![".worktrees".to_owned()];
+        assert!(is_ignored_scan_directory(
+            std::path::Path::new("/project/.worktrees"),
+            &ignore
+        ));
+        assert!(!is_ignored_scan_directory(
+            std::path::Path::new("/project/.git"),
+            &ignore
+        ));
     }
 
     #[test]

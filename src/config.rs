@@ -1,6 +1,29 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// Default directory names excluded from workspace scans (REQ-CFG scan.ignore).
+pub const DEFAULT_IGNORED_SCAN_DIRECTORIES: &[&str] = &[
+    ".beads",
+    ".claude",
+    ".codegraph",
+    ".git",
+    ".mypy_cache",
+    ".playwright-mcp",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "target",
+];
+
+fn default_scan_ignore() -> Vec<String> {
+    DEFAULT_IGNORED_SCAN_DIRECTORIES
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RawConfig {
@@ -17,6 +40,7 @@ pub struct RawConfig {
     pub env: EnvConfig,
     pub features: Option<FeatureToggles>,
     pub check: Option<CheckDefaults>,
+    pub scan: ScanConfig,
 }
 
 impl Default for RawConfig {
@@ -33,6 +57,7 @@ impl Default for RawConfig {
             env: EnvConfig::default(),
             features: None,
             check: None,
+            scan: ScanConfig::default(),
         }
     }
 }
@@ -40,6 +65,22 @@ impl Default for RawConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnvConfig {
     pub ignore: Vec<String>,
+}
+
+/// Directory names excluded from workspace scans, e.g. checked-out git worktrees
+/// (REQ-CFG scan.ignore). Replaces (does not append to) the default list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScanConfig {
+    pub ignore: Vec<String>,
+}
+
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            ignore: default_scan_ignore(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +137,7 @@ pub struct ResolvedConfig {
     pub env_ignore: Vec<String>,
     pub features: FeatureToggles,
     pub check: CheckDefaults,
+    pub scan_ignore: Vec<String>,
 }
 
 impl ResolvedConfig {
@@ -113,6 +155,7 @@ impl ResolvedConfig {
             env_ignore: vec![],
             features: FeatureToggles::default(),
             check: CheckDefaults::default(),
+            scan_ignore: default_scan_ignore(),
         }
     }
 }
@@ -220,6 +263,9 @@ fn merge(base: &mut RawConfig, over: RawConfig) {
             base_c.ignore = c.ignore;
         }
     }
+    if !over.scan.ignore.is_empty() {
+        base.scan.ignore = over.scan.ignore;
+    }
 }
 
 /// Join `p` onto `root` only if `p` is relative and contains no `..` components.
@@ -283,6 +329,7 @@ fn resolve(root: &Path, raw: RawConfig) -> ResolvedConfig {
         env_ignore: raw.env.ignore,
         features: raw.features.unwrap_or_default(),
         check: raw.check.unwrap_or_default(),
+        scan_ignore: raw.scan.ignore,
     }
 }
 
