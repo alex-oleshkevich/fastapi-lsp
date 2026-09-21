@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "fastapi-lsp"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arc-swap",
  "clap",
